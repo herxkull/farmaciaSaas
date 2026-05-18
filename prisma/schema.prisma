@@ -1,0 +1,401 @@
+// Enterprise-Grade Pharmacy POS Schema (Multitenant SaaS)
+// Designed for high scalability, clinical traceablity, and future Supabase RLS deployment.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  SUPER_ADMIN        // Dueño de la Plataforma SaaS
+  TENANT_OWNER       // Dueño corporativo de la cadena de farmacias
+  BRANCH_MANAGER     // Gerente/Administrador de una sucursal específica
+  PHARMACIST         // Químico Farmacéutico / Regente (Aprobación de controlados)
+  CASHIER            // Cajero operativo
+}
+
+enum SaleStatus {
+  COMPLETED
+  CANCELLED
+  REFUNDED
+}
+
+enum TransferStatus {
+  PENDING     // Solicitado
+  IN_TRANSIT  // Enviado / En Ruta
+  COMPLETED   // Recibido en destino
+  CANCELLED   // Rechazado / Cancelado
+}
+
+enum PaymentType {
+  CASH           // Efectivo
+  CREDIT_CARD    // Tarjeta Crédito
+  DEBIT_CARD     // Tarjeta Débito
+  INSURANCE      // Convenio Aseguradora / Co-pago
+  LOYALTY_POINTS // Redención de puntos de fidelidad
+}
+
+enum ShiftStatus {
+  OPEN
+  CLOSED
+}
+
+/// @model Tenant
+/// Representa el corporativo o cadena matriz (Ej. "Farmacias del Ahorro").
+model Tenant {
+  id            String    @id @default(uuid())
+  name          String    // Nombre corporativo de la cadena
+  slug          String    @unique
+  taxId         String?   @map("tax_id") // Registro tributario matriz
+  logoUrl       String?   @map("logo_url")
+  isActive      Boolean   @default(true) @map("is_active")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  // Relaciones Maestras
+  branches      Branch[]
+  users         User[]
+  products      Product[]
+  batches       Batch[]
+  customers     Customer[]
+  sales         Sale[]
+  transfers     InventoryTransfer[]
+
+  @@map("tenants")
+}
+
+/// @model Branch
+/// Sucursales físicas vinculadas a una cadena. Cada una posee su propio stock físico y turnos.
+model Branch {
+  id            String    @id @default(uuid())
+  tenantId      String    @map("tenant_id")
+  tenant        Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  
+  name          String    // Nombre de la Sucursal (ej. "Sucursal Centro")
+  code          String    // Código único de sucursal dentro de la cadena
+  address       String?
+  phone         String?
+  isActive      Boolean   @default(true) @map("is_active")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  // Operaciones en la Sucursal
+  users         User[]
+  inventories   BranchBatchInventory[]
+  sales         Sale[]
+  shifts        CashShift[]
+  transfersFrom InventoryTransfer[] @relation("OriginBranch")
+  transfersTo   InventoryTransfer[] @relation("DestinationBranch")
+
+  @@unique([tenantId, code])
+  @@map("branches")
+}
+
+/// @model User
+/// Personal del sistema con RBAC y vinculación a sucursal predeterminada.
+model User {
+  id            String    @id @default(uuid())
+  tenantId      String    @map("tenant_id")
+  tenant        Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  
+  defaultBranchId String? @map("default_branch_id")
+  defaultBranch   Branch? @relation(fields: [defaultBranchId], references: [id])
+
+  email         String    @unique
+  passwordHash  String    @map("password_hash")
+  name          String
+  role          Role      @default(CASHIER)
+  isActive      Boolean   @default(true) @map("is_active")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  // Logs Operativos
+  sales         Sale[]
+  shifts        CashShift[]
+  approvedTransfers InventoryTransfer[] @relation("ApprovedByUser")
+
+  @@index([tenantId])
+  @@map("users")
+}
+
+/// @model Product
+/// Catálogo Maestro de Productos Corporativo. Propiedades clínicas globales.
+model Product {
+  id            String    @id @default(uuid())
+  tenantId      String    @map("tenant_id")
+  tenant        Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  name          String
+  description   String?
+  sku           String?   
+  barcode       String    // Código universal del producto (EAN/UPC)
+  
+  // ATRIBUTOS CLÍNICOS (Para búsquedas de Genéricos Equivalentes)
+  activeIngredient String @map("active_ingredient") // Principio Activo (Ej: Sildenafil)
+  concentration    String // Concentración (Ej: 50mg)
+  
+  // FLAGS DE CONTROL REGULATORIO
+  isControlled     Boolean @default(false) @map("is_controlled") // Requiere resguardo y libro de control
+  requiresPrescription Boolean @default(false) @map("requires_prescription") // Obliga a capturar receta
+
+  basePrice     Decimal   @map("base_price") @db.Decimal(10, 2)
+  salePrice     Decimal   @map("sale_price") @db.Decimal(10, 2)
+  taxRate       Decimal   @default(16.0) @map("tax_rate") @db.Decimal(5, 2) 
+  
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  // Relaciones
+  batches       Batch[]
+  saleItems     SaleItem[]
+
+  @@unique([tenantId, barcode])
+  @@index([tenantId, activeIngredient]) // Agiliza búsquedas de genéricos alternativos
+  @@map("products")
+}
+
+/// @model Batch
+/// Catálogo de Lotes creados a nivel Cadena/Matriz. Define el ciclo de vida químico.
+model Batch {
+  id            String    @id @default(uuid())
+  tenantId      String    @map("tenant_id")
+  tenant        Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  productId     String    @map("product_id")
+  product       Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  batchNumber   String    @map("batch_number") // Número de lote de fabricación
+  expirationDate DateTime @map("expiration_date") // Fecha de caducidad estricta
+  costPrice     Decimal   @map("cost_price") @db.Decimal(10, 2) // Costo unitario de adquisición
+  
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  // Rastreabilidad
+  inventories   BranchBatchInventory[]
+  saleItems     SaleItem[]
+  transferItems InventoryTransferItem[]
+
+  @@unique([tenantId, productId, batchNumber])
+  @@index([expirationDate])
+  @@map("batches")
+}
+
+/// @model BranchBatchInventory
+/// CONTEO FÍSICO DE INVENTARIO POR LOTE Y SUCURSAL. Base de la trazabilidad FEFO.
+model BranchBatchInventory {
+  id            String    @id @default(uuid())
+  tenantId      String    @map("tenant_id")
+  branchId      String    @map("branch_id")
+  branch        Branch    @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  
+  batchId       String    @map("batch_id")
+  batch         Batch     @relation(fields: [batchId], references: [id], onDelete: Cascade)
+
+  quantity      Int       // Cantidad física actual en esta sucursal específica
+  minStockAlert Int       @default(5) @map("min_stock_alert") // Alerta personalizada por sucursal
+
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  @@unique([branchId, batchId]) // Previene duplicados de registros de lotes por sucursal
+  @@index([tenantId, branchId])
+  @@map("branch_batch_inventories")
+}
+
+/// @model Customer
+/// Expediente de Cliente / Paciente para fidelización y convenios de salud.
+model Customer {
+  id            String    @id @default(uuid())
+  tenantId      String    @map("tenant_id")
+  tenant        Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  name          String
+  email         String?
+  phone         String?
+  taxId         String?   @map("tax_id") 
+  
+  // Fidelización y Salud
+  loyaltyPoints Int       @default(0) @map("loyalty_points") // Acumulados
+  discountAgreement String? @map("discount_agreement") // Aseguradora Vinculada (Ej: AXA, Metlife)
+
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  sales         Sale[]
+
+  @@index([tenantId])
+  @@map("customers")
+}
+
+/// @model CashShift
+/// Control de Flujo y Turnos. Implementa el ARQUEO CIEGO para seguridad operativa.
+model CashShift {
+  id              String    @id @default(uuid())
+  tenantId        String    @map("tenant_id")
+  branchId        String    @map("branch_id")
+  branch          Branch    @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  
+  userId          String    @map("user_id")
+  user            User      @relation(fields: [userId], references: [id])
+
+  openedAt        DateTime  @default(now()) @map("opened_at")
+  closedAt        DateTime? @map("closed_at")
+  status          ShiftStatus @default(OPEN)
+
+  openingCash     Decimal   @map("opening_cash") @db.Decimal(10, 2) // Fondo de caja inicial
+  expectedCash    Decimal   @default(0) @map("expected_cash") @db.Decimal(10, 2) // Monto calculado por sistema (Oculto al cajero)
+  actualCashCount Decimal?  @map("actual_cash_count") @db.Decimal(10, 2) // Conteo físico real ingresado al cerrar
+  difference      Decimal?  @db.Decimal(10, 2) // Desviación automática (Faltante o Sobrante)
+
+  sales           Sale[]
+
+  @@index([branchId, status])
+  @@map("cash_shifts")
+}
+
+/// @model Sale
+/// Cabecera de Venta asociada a Turno y Sucursal.
+model Sale {
+  id            String    @id @default(uuid())
+  tenantId      String    @map("tenant_id")
+  tenant        Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  
+  branchId      String    @map("branch_id")
+  branch        Branch    @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  userId        String    @map("user_id") // Cajero ejecutor
+  user          User      @relation(fields: [userId], references: [id])
+
+  cashShiftId   String    @map("cash_shift_id")
+  cashShift     CashShift @relation(fields: [cashShiftId], references: [id])
+
+  customerId    String?   @map("customer_id")
+  customer      Customer? @relation(fields: [customerId], references: [id])
+
+  subtotal      Decimal   @db.Decimal(10, 2)
+  taxes         Decimal   @db.Decimal(10, 2)
+  discount      Decimal   @default(0) @db.Decimal(10, 2)
+  total         Decimal   @db.Decimal(10, 2)
+  
+  status        SaleStatus @default(COMPLETED)
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  // Desgloses Relacionados
+  items         SaleItem[]
+  payments      SalePayment[] // Habilita Múltiples métodos de pago (Híbrido)
+
+  @@index([tenantId, branchId])
+  @@index([cashShiftId])
+  @@map("sales")
+}
+
+/// @model SalePayment
+/// Habilita Checkout Híbrido (Ej: $100 en Efectivo + $400 en Aseguradora).
+model SalePayment {
+  id            String    @id @default(uuid())
+  saleId        String    @map("sale_id")
+  sale          Sale      @relation(fields: [saleId], references: [id], onDelete: Cascade)
+
+  paymentType   PaymentType @map("payment_type")
+  amount        Decimal   @db.Decimal(10, 2)
+  reference     String?   // Folio de póliza / Voucher de tarjeta
+
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  @@map("sale_payments")
+}
+
+/// @model SaleItem
+/// Línea de detalle. Enlaza al Lote para cumplimiento FEFO.
+model SaleItem {
+  id            String    @id @default(uuid())
+  saleId        String    @map("sale_id")
+  sale          Sale      @relation(fields: [saleId], references: [id], onDelete: Cascade)
+
+  productId     String    @map("product_id")
+  product       Product   @relation(fields: [productId], references: [id])
+
+  batchId       String    @map("batch_id") // Lote del que se extrajeron las unidades
+  batch         Batch     @relation(fields: [batchId], references: [id])
+
+  quantity      Int
+  unitPrice     Decimal   @map("unit_price") @db.Decimal(10, 2)
+  taxRate       Decimal   @map("tax_rate") @db.Decimal(5, 2)
+  subtotal      Decimal   @db.Decimal(10, 2)
+
+  // Auditoría Regulatoria (Medicamentos Controlados)
+  prescription  Prescription? 
+  
+  @@index([saleId])
+  @@map("sale_items")
+}
+
+/// @model Prescription
+/// Registro obligatorio exigido por leyes sanitarias para venta de psicotrópicos / antibióticos controlados.
+model Prescription {
+  id            String    @id @default(uuid())
+  saleItemId    String    @unique @map("sale_item_id")
+  saleItem      SaleItem  @relation(fields: [saleItemId], references: [id], onDelete: Cascade)
+
+  doctorName    String    @map("doctor_name") // Nombre del Médico Tratante
+  doctorLicense String    @map("doctor_license") // Cédula Profesional
+  prescriptionFolio String @map("prescription_folio") // Folio único del recetario
+  institution   String?   // Ej. Secretaría de Salud, Hospital Civil
+
+  capturedAt    DateTime  @default(now()) @map("captured_at")
+
+  @@map("prescriptions")
+}
+
+/// @model InventoryTransfer
+/// Cabecera de traslado logístico entre dos Sucursales físicas de la misma cadena.
+model InventoryTransfer {
+  id            String    @id @default(uuid())
+  tenantId      String    @map("tenant_id")
+  tenant        Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  
+  originBranchId String   @map("origin_branch_id")
+  originBranch   Branch   @relation("OriginBranch", fields: [originBranchId], references: [id])
+
+  destinationBranchId String @map("destination_branch_id")
+  destinationBranch   Branch @relation("DestinationBranch", fields: [destinationBranchId], references: [id])
+
+  status        TransferStatus @default(PENDING)
+  
+  approvedByUserId String? @map("approved_by_user_id") // Quien autoriza la salida/entrada
+  approvedByUser   User?   @relation("ApprovedByUser", fields: [approvedByUserId], references: [id])
+
+  notes         String?
+  sentAt        DateTime? @map("sent_at")
+  receivedAt    DateTime? @map("received_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  items         InventoryTransferItem[]
+
+  @@index([tenantId])
+  @@map("inventory_transfers")
+}
+
+/// @model InventoryTransferItem
+/// Detalle del traslado por lote, rastreando diferencias en el envío/recepción.
+model InventoryTransferItem {
+  id            String    @id @default(uuid())
+  transferId    String    @map("transfer_id")
+  transfer      InventoryTransfer @relation(fields: [transferId], references: [id], onDelete: Cascade)
+
+  batchId       String    @map("batch_id")
+  batch         Batch     @relation(fields: [batchId], references: [id])
+
+  requestedQty  Int       @map("requested_qty") // Solicitado
+  shippedQty    Int?      @map("shipped_qty")   // Despachado de origen
+  receivedQty   Int?      @map("received_qty")  // Ingresado en destino (Control de mermas)
+
+  @@map("inventory_transfer_items")
+}

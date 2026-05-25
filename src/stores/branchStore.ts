@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
-export type UserRole = 'OWNER' | 'SUPER_ADMIN' | 'EMPLOYEE' | 'CASHIER' | 'PHARMACIST';
+export type UserRole = 'OWNER' | 'SUPER_ADMIN' | 'EMPLOYEE' | 'CASHIER' | 'PHARMACIST' | 'BRANCH_MANAGER';
 
 export interface AuthUser {
   id: string;
@@ -9,6 +9,26 @@ export interface AuthUser {
   role: UserRole;
   tenantId: string;
   assignedBranchId?: string; // Para personal operativo (relación 1-a-1)
+}
+
+export interface SettingUser {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+  roleLabel: string;
+  branch: string;
+  status: 'active' | 'suspended';
+  lastAccess: string;
+  color: string;
+  password?: string;
+  permissions: {
+    processSale: boolean;
+    applyDiscount: boolean;
+    voidInvoice: boolean;
+    adjustStock: boolean;
+    purchaseOrder: boolean;
+  };
 }
 
 export interface BranchConfig {
@@ -43,6 +63,7 @@ interface BranchState {
   user: AuthUser | null;
   activeBranch: BranchInfo | null;
   availableBranches: BranchInfo[];
+  users: SettingUser[];
 
   // Actions
   login: (user: AuthUser) => void;
@@ -53,6 +74,10 @@ interface BranchState {
   clearBranchContext: () => void;
   canSwitchBranch: () => boolean;
   addBranch: (branch: BranchInfo) => void;
+  setUsers: (users: SettingUser[] | ((prev: SettingUser[]) => SettingUser[])) => void;
+  
+  tenantConfig: { chainName: string; rfc: string; receiptHeader: string; };
+  setTenantConfig: (config: Partial<{chainName: string; rfc: string; receiptHeader: string;}>) => void;
 }
 
 // Mock de sucursales del sistema
@@ -174,6 +199,74 @@ const DEFAULT_BRANCHES: BranchInfo[] = [
   }
 ];
 
+const DEFAULT_USERS: SettingUser[] = [
+  {
+    id: 'u-admin',
+    name: 'Hersan Hernandez',
+    email: 'admin@zefiropharmacy.com',
+    role: 'OWNER',
+    roleLabel: 'Propietario',
+    branch: 'Todas (Corporativo)',
+    status: 'active',
+    lastAccess: 'Ahora mismo',
+    color: 'indigo',
+    password: 'admin',
+    permissions: { processSale: true, applyDiscount: true, voidInvoice: true, adjustStock: true, purchaseOrder: true }
+  },
+  {
+    id: 'u-cajero',
+    name: 'Elena Rostova',
+    email: 'cajero@zefiropharmacy.com',
+    role: 'CASHIER',
+    roleLabel: 'Cajero',
+    branch: 'Sucursal Norte',
+    status: 'active',
+    lastAccess: 'Hace 5 mins',
+    color: 'slate',
+    password: 'cajero',
+    permissions: { processSale: true, applyDiscount: false, voidInvoice: false, adjustStock: false, purchaseOrder: false }
+  },
+  { 
+    id: 'u-1', 
+    name: 'Juan Pérez', 
+    email: 'jperez@zefiro.com', 
+    role: 'CASHIER', 
+    roleLabel: 'Cajero', 
+    branch: 'Sucursal Norte', 
+    status: 'active', 
+    lastAccess: 'Hace 5 mins', 
+    color: 'slate',
+    password: 'cajero_zefiro',
+    permissions: { processSale: true, applyDiscount: false, voidInvoice: false, adjustStock: false, purchaseOrder: false }
+  },
+  { 
+    id: 'u-2', 
+    name: 'Elena Rostova', 
+    email: 'erostova@zefiro.com', 
+    role: 'BRANCH_MANAGER', 
+    roleLabel: 'Gerente Sucursal', 
+    branch: 'Sucursal Centro', 
+    status: 'active', 
+    lastAccess: 'Hoy, 09:15 AM', 
+    color: 'indigo',
+    password: 'gerente_zefiro',
+    permissions: { processSale: true, applyDiscount: true, voidInvoice: true, adjustStock: true, purchaseOrder: false }
+  },
+  { 
+    id: 'u-3', 
+    name: 'Dr. Marcus Aurelius', 
+    email: 'maurelius@zefiro.com', 
+    role: 'PHARMACIST', 
+    roleLabel: 'Químico Regente', 
+    branch: 'Todas (Corporativo)', 
+    status: 'suspended', 
+    lastAccess: 'Ayer, 18:40', 
+    color: 'emerald',
+    password: 'regente_zefiro',
+    permissions: { processSale: true, applyDiscount: true, voidInvoice: true, adjustStock: true, purchaseOrder: true }
+  }
+];
+
 /**
  * Branch Store (Zustand + Persist)
  * Centraliza la sesión del usuario (AuthUser), sucursales disponibles
@@ -185,10 +278,21 @@ export const useBranchStore = create<BranchState>()(
       user: null,
       activeBranch: DEFAULT_BRANCHES[0], // Por defecto
       availableBranches: DEFAULT_BRANCHES,
+      users: DEFAULT_USERS,
+      
+      tenantConfig: {
+        chainName: 'Zefiro Pharmacy Group S.A. de C.V.',
+        rfc: 'ZPG202605XYZ',
+        receiptHeader: 'Zefiro Pharmacies - Salud Cerca de Ti'
+      },
 
       login: (user) => set({ user }),
       
       logout: () => set({ user: null, activeBranch: null }),
+
+      setTenantConfig: (config) => set((state) => ({
+        tenantConfig: { ...state.tenantConfig, ...config }
+      })),
 
       setActiveBranch: (branch) => set({ activeBranch: branch }),
 
@@ -221,7 +325,11 @@ export const useBranchStore = create<BranchState>()(
       canSwitchBranch: () => {
         const role = get().user?.role;
         return role === 'OWNER' || role === 'SUPER_ADMIN';
-      }
+      },
+
+      setUsers: (users) => set((state) => ({
+        users: typeof users === 'function' ? users(state.users) : users
+      }))
     }),
     {
       name: 'zefiro-branch-storage',
@@ -230,6 +338,8 @@ export const useBranchStore = create<BranchState>()(
         user: state.user,
         activeBranch: state.activeBranch,
         availableBranches: state.availableBranches,
+        users: state.users,
+        tenantConfig: state.tenantConfig,
       }),
     }
   )

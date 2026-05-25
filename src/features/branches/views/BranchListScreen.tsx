@@ -159,9 +159,6 @@ export default function BranchListScreen() {
       // 1. Agregar sucursal en el store de Sucursales
       addBranch(newBranch);
 
-      // 2. Inicializar catálogo de inventario FEFO por defecto en el store de inventarios
-      initializeBranchInventory(newId);
-
       setAddSuccess(true);
       setTimeout(() => {
         setShowAddModal(false);
@@ -782,13 +779,6 @@ export default function BranchListScreen() {
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold focus:bg-white focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
                   />
                 </div>
-              </div>
-
-              <div className="p-3 bg-slate-50 border border-slate-200/60 rounded-2xl flex items-start gap-2.5">
-                <Info className="w-4 h-4 text-indigo-500 shrink-0 mt-0.5" />
-                <p className="text-[10px] text-slate-500 font-semibold leading-relaxed">
-                  Al aprovisionar la nueva sucursal, el motor FEFO de Zefiro inicializará automáticamente su stock local con un catálogo clínico base (Paracetamol, Omeprazol) para inicio inmediato de operaciones.
-                </p>
               </div>
 
               <div className="flex items-center gap-3 pt-3 border-t border-slate-100">

@@ -14,10 +14,64 @@ export default function InventoryScreen() {
 
   // Suscribirse de forma reactiva al store de inventario central
   const inventory = useInventoryStore((state) => state.inventory);
+  const initializeBranch = useInventoryStore((state) => state.initializeBranch);
   const currentInventory = inventory[activeBranchId] || [];
+
+  React.useEffect(() => {
+    if (!inventory[activeBranchId]) {
+      initializeBranch(activeBranchId);
+    }
+  }, [activeBranchId, inventory, initializeBranch]);
 
   const [expandedRows, setExpandedRows] = useState<Record<string, boolean>>({});
   const [searchTerm, setSearchTerm] = useState('');
+  
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [newBatch, setNewBatch] = useState({ productId: '', batchNumber: '', quantity: 0, expirationDate: '' });
+  const addBatch = useInventoryStore((state) => state.addBatch);
+
+  const handleAddBatch = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newBatch.productId || !newBatch.batchNumber || !newBatch.expirationDate) return;
+    
+    addBatch(activeBranchId, newBatch.productId, {
+      id: 'b-' + Date.now(),
+      batchNumber: newBatch.batchNumber,
+      expirationDate: newBatch.expirationDate,
+      quantity: Number(newBatch.quantity)
+    });
+    
+    setShowAddModal(false);
+    setNewBatch({ productId: '', batchNumber: '', quantity: 0, expirationDate: '' });
+  };
+
+  const [showAddProductModal, setShowAddProductModal] = useState(false);
+  const [newProduct, setNewProduct] = useState({ 
+    name: '', activeIngredient: '', sku: '', salePrice: 0, isControlled: false, category: 'General'
+  });
+  const addProduct = useInventoryStore((state) => state.addProduct);
+
+  const handleAddProduct = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newProduct.name || !newProduct.sku) return;
+    
+    addProduct(activeBranchId, {
+      id: 'p-' + Date.now(),
+      name: newProduct.name,
+      activeIngredient: newProduct.activeIngredient || newProduct.name,
+      barcode: newProduct.sku,
+      sku: newProduct.sku,
+      salePrice: Number(newProduct.salePrice),
+      taxRate: 0.16,
+      stockTotal: 0,
+      isControlled: newProduct.isControlled,
+      category: newProduct.category,
+      batches: []
+    });
+    
+    setShowAddProductModal(false);
+    setNewProduct({ name: '', activeIngredient: '', sku: '', salePrice: 0, isControlled: false, category: 'General' });
+  };
 
   const toggleRow = (id: string) => {
     setExpandedRows(prev => ({ ...prev, [id]: !prev[id] }));
@@ -54,7 +108,16 @@ export default function InventoryScreen() {
           <button className="px-4 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-600 shadow-sm flex items-center gap-2 hover:bg-slate-50">
             <Download className="w-4 h-4" /> Exportar
           </button>
-          <button className="px-4 py-2.5 bg-indigo-600 text-white rounded-xl text-xs font-bold shadow-md shadow-indigo-200 hover:bg-indigo-700 flex items-center gap-2 active:scale-95 transition-all">
+          <button 
+            onClick={() => setShowAddProductModal(true)}
+            className="px-4 py-2.5 bg-white border border-indigo-200 text-indigo-600 rounded-xl text-xs font-bold shadow-sm hover:bg-indigo-50 flex items-center gap-2 active:scale-95 transition-all"
+          >
+            <Plus className="w-4 h-4" /> Nuevo Producto
+          </button>
+          <button 
+            onClick={() => setShowAddModal(true)}
+            className="px-4 py-2.5 bg-indigo-600 text-white rounded-xl text-xs font-bold shadow-md shadow-indigo-200 hover:bg-indigo-700 flex items-center gap-2 active:scale-95 transition-all"
+          >
             <Plus className="w-4 h-4" /> Nuevo Lote
           </button>
         </div>
@@ -229,6 +292,175 @@ export default function InventoryScreen() {
           </table>
         </div>
       </div>
+
+      {/* MODAL DE NUEVO LOTE */}
+      {showAddModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-md bg-white border border-slate-200 rounded-3xl shadow-2xl p-6 animate-in zoom-in duration-200 relative">
+            <button 
+              onClick={() => setShowAddModal(false)}
+              className="absolute top-4 right-4 p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-full transition-colors"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+            </button>
+
+            <h3 className="text-xl font-black text-slate-800 tracking-tight mb-4">Registrar Nuevo Lote</h3>
+            
+            <form onSubmit={handleAddBatch} className="space-y-4">
+              <div>
+                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wide mb-1.5">Producto</label>
+                <select 
+                  required
+                  value={newBatch.productId}
+                  onChange={(e) => setNewBatch({...newBatch, productId: e.target.value})}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm font-semibold text-slate-700 focus:ring-2 focus:ring-indigo-500 outline-none"
+                >
+                  <option value="">Selecciona un producto...</option>
+                  {currentInventory.map(p => (
+                    <option key={p.id} value={p.id}>{p.name} ({p.sku})</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wide mb-1.5">No. de Lote</label>
+                  <input 
+                    type="text" required
+                    value={newBatch.batchNumber}
+                    onChange={(e) => setNewBatch({...newBatch, batchNumber: e.target.value})}
+                    placeholder="L-1234"
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold focus:ring-2 focus:ring-indigo-500 outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wide mb-1.5">Cantidad</label>
+                  <input 
+                    type="number" required min="1"
+                    value={newBatch.quantity || ''}
+                    onChange={(e) => setNewBatch({...newBatch, quantity: Number(e.target.value)})}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold focus:ring-2 focus:ring-indigo-500 outline-none"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wide mb-1.5">Fecha de Caducidad</label>
+                <input 
+                  type="date" required
+                  value={newBatch.expirationDate}
+                  onChange={(e) => setNewBatch({...newBatch, expirationDate: e.target.value})}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold focus:ring-2 focus:ring-indigo-500 outline-none"
+                />
+              </div>
+
+              <button 
+                type="submit"
+                className="w-full py-3 mt-2 bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-sm rounded-xl shadow-md transition-all active:scale-95"
+              >
+                Guardar Lote
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL DE NUEVO PRODUCTO */}
+      {showAddProductModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-md bg-white border border-slate-200 rounded-3xl shadow-2xl p-6 animate-in zoom-in duration-200 relative overflow-y-auto max-h-[90vh]">
+            <button 
+              onClick={() => setShowAddProductModal(false)}
+              className="absolute top-4 right-4 p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-full transition-colors"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+            </button>
+
+            <h3 className="text-xl font-black text-slate-800 tracking-tight mb-4">Registrar Nuevo Producto</h3>
+            
+            <form onSubmit={handleAddProduct} className="space-y-4">
+              <div>
+                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wide mb-1.5">Nombre del Producto</label>
+                <input 
+                  type="text" required
+                  value={newProduct.name}
+                  onChange={(e) => setNewProduct({...newProduct, name: e.target.value})}
+                  placeholder="Ej: Paracetamol 500mg - Caja 20 tabs"
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold focus:ring-2 focus:ring-indigo-500 outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wide mb-1.5">Principio Activo</label>
+                <input 
+                  type="text"
+                  value={newProduct.activeIngredient}
+                  onChange={(e) => setNewProduct({...newProduct, activeIngredient: e.target.value})}
+                  placeholder="Ej: Paracetamol"
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold focus:ring-2 focus:ring-indigo-500 outline-none"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wide mb-1.5">SKU / Código</label>
+                  <input 
+                    type="text" required
+                    value={newProduct.sku}
+                    onChange={(e) => setNewProduct({...newProduct, sku: e.target.value})}
+                    placeholder="Ej: MED-PARA-500"
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold focus:ring-2 focus:ring-indigo-500 outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wide mb-1.5">Precio Venta (C$)</label>
+                  <input 
+                    type="number" required min="0" step="0.01"
+                    value={newProduct.salePrice || ''}
+                    onChange={(e) => setNewProduct({...newProduct, salePrice: Number(e.target.value)})}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold focus:ring-2 focus:ring-indigo-500 outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wide mb-1.5">Categoría</label>
+                  <select 
+                    value={newProduct.category}
+                    onChange={(e) => setNewProduct({...newProduct, category: e.target.value})}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold focus:ring-2 focus:ring-indigo-500 outline-none"
+                  >
+                    <option value="General">General</option>
+                    <option value="Analgésicos">Analgésicos</option>
+                    <option value="Antibióticos">Antibióticos</option>
+                    <option value="Controlados">Controlados</option>
+                    <option value="Cardiología">Cardiología</option>
+                  </select>
+                </div>
+                <div className="flex items-center justify-center pt-5">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input 
+                      type="checkbox"
+                      checked={newProduct.isControlled}
+                      onChange={(e) => setNewProduct({...newProduct, isControlled: e.target.checked})}
+                      className="w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500"
+                    />
+                    <span className="text-sm font-bold text-rose-600">Es Controlado</span>
+                  </label>
+                </div>
+              </div>
+
+              <button 
+                type="submit"
+                className="w-full py-3 mt-4 bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-sm rounded-xl shadow-md transition-all active:scale-95"
+              >
+                Guardar Producto
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
 
     </div>
   );

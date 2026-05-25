@@ -20,6 +20,7 @@ export interface InventoryProduct {
   isControlled: boolean;
   category: string;
   batches: Batch[];
+  soldTotal?: number;
 }
 
 interface InventoryState {
@@ -30,6 +31,8 @@ interface InventoryState {
   deductStock: (branchId: string, productId: string, qty: number) => void;
   restockProduct: (branchId: string, productId: string, batchId: string, qty: number) => void;
   initializeBranch: (branchId: string) => void;
+  addBatch: (branchId: string, productId: string, newBatch: Batch) => void;
+  addProduct: (branchId: string, product: InventoryProduct) => void;
 }
 
 // Datos iniciales realistas e idénticos a los escenarios de simulación
@@ -228,7 +231,8 @@ export const useInventoryStore = create<InventoryState>()(
             return {
               ...product,
               batches: updatedBatches,
-              stockTotal: nextStockTotal
+              stockTotal: nextStockTotal,
+              soldTotal: (product.soldTotal || 0) + qty
             };
           });
 
@@ -278,6 +282,57 @@ export const useInventoryStore = create<InventoryState>()(
         });
       },
 
+      addProduct: (branchId, product) => {
+        set((state) => {
+          const branchProducts = state.inventory[branchId] || [];
+          return {
+            inventory: {
+              ...state.inventory,
+              [branchId]: [...branchProducts, product]
+            }
+          };
+        });
+      },
+
+      addBatch: (branchId, productId, newBatch) => {
+        set((state) => {
+          const branchProducts = state.inventory[branchId];
+          if (!branchProducts) return state;
+
+          const updatedProducts = branchProducts.map((product) => {
+            if (product.id !== productId) return product;
+
+            const existingBatch = product.batches.find(b => b.batchNumber === newBatch.batchNumber);
+            let updatedBatches;
+            
+            if (existingBatch) {
+              updatedBatches = product.batches.map(b => 
+                b.batchNumber === newBatch.batchNumber 
+                  ? { ...b, quantity: b.quantity + newBatch.quantity } 
+                  : b
+              );
+            } else {
+              updatedBatches = [...product.batches, newBatch];
+            }
+
+            const nextStockTotal = updatedBatches.reduce((sum, b) => sum + b.quantity, 0);
+
+            return {
+              ...product,
+              batches: updatedBatches,
+              stockTotal: nextStockTotal
+            };
+          });
+
+          return {
+            inventory: {
+              ...state.inventory,
+              [branchId]: updatedProducts
+            }
+          };
+        });
+      },
+
       initializeBranch: (branchId) => {
         set((state) => {
           if (state.inventory[branchId]) return state; // Ya existe
@@ -300,6 +355,36 @@ export const useInventoryStore = create<InventoryState>()(
               ]
             },
             {
+              id: 'p2',
+              name: 'Amoxicilina Suspensión 250mg/5ml',
+              activeIngredient: 'Amoxicilina',
+              barcode: '7509876543210',
+              sku: 'ABX-AMOX-250',
+              salePrice: 120.00,
+              taxRate: 0.0,
+              stockTotal: 40,
+              isControlled: false,
+              category: 'Antibióticos',
+              batches: [
+                { id: `b2_${branchId}`, batchNumber: 'L-NEW2', expirationDate: '2026-06-15', quantity: 40 },
+              ]
+            },
+            {
+              id: 'p3',
+              name: 'Clonazepam 2mg - 30 tabletas',
+              activeIngredient: 'Clonazepam',
+              barcode: '7507788991122',
+              sku: 'MED-CLON-002',
+              salePrice: 185.00,
+              taxRate: 0.16,
+              stockTotal: 15,
+              isControlled: true,
+              category: 'Controlados',
+              batches: [
+                { id: `b3_${branchId}`, batchNumber: 'L-NEW3', expirationDate: '2026-10-01', quantity: 15 },
+              ]
+            },
+            {
               id: 'p4',
               name: 'Omeprazol 20mg - Caja 30 cápsulas',
               activeIngredient: 'Omeprazol',
@@ -311,7 +396,22 @@ export const useInventoryStore = create<InventoryState>()(
               isControlled: false,
               category: 'Gastroenterología',
               batches: [
-                { id: `b4_${branchId}`, batchNumber: 'L-NEW2', expirationDate: '2027-12-31', quantity: 50 },
+                { id: `b4_${branchId}`, batchNumber: 'L-NEW4', expirationDate: '2027-12-31', quantity: 50 },
+              ]
+            },
+            {
+              id: 'p5',
+              name: 'Loratadina 10mg - Caja 20 tabs',
+              activeIngredient: 'Loratadina',
+              barcode: '7502233445566',
+              sku: 'MED-LORA-010',
+              salePrice: 32.00,
+              taxRate: 0.16,
+              stockTotal: 8,
+              isControlled: false,
+              category: 'Antihistamínicos',
+              batches: [
+                { id: `b5_${branchId}`, batchNumber: 'L-NEW5', expirationDate: '2026-06-01', quantity: 8 },
               ]
             }
           ];

@@ -28,15 +28,14 @@ export interface ActiveShift {
 interface ShiftState {
   // Data
   user: SessionUser | null;
-  activeBranch: ActiveBranch | null;
-  currentShift: ActiveShift | null;
+  shifts: Record<string, ActiveShift>;
   
   // Actions
-  setSession: (user: SessionUser, branch: ActiveBranch) => void;
-  openShift: (openingCash: number) => void;
-  addSale: (amount: number, method: 'cash' | 'card') => void;
-  addWithdrawal: (amount: number) => void;
-  closeShift: () => void;
+  setSession: (user: SessionUser) => void;
+  openShift: (branchId: string, openingCash: number) => void;
+  addSale: (branchId: string, amount: number, method: 'cash' | 'card') => void;
+  addWithdrawal: (branchId: string, amount: number) => void;
+  closeShift: (branchId: string) => void;
   logout: () => void;
 }
 
@@ -50,50 +49,62 @@ export const useShiftStore = create<ShiftState>()(
   persist(
     (set, get) => ({
       user: null,
-      activeBranch: null,
-      currentShift: null,
+      shifts: {},
 
-      setSession: (user, branch) => set({ user, activeBranch: branch }),
+      setSession: (user) => set({ user }),
       
-      openShift: (openingCash) => set({
-        currentShift: {
-          id: 'SHIFT-' + Math.floor(100000 + Math.random() * 900000),
-          openedAt: new Date().toLocaleString(),
-          openingCash: openingCash,
-          salesCash: 0,
-          salesCard: 0,
-          withdrawals: 0
+      openShift: (branchId, openingCash) => set((state) => ({
+        shifts: {
+          ...state.shifts,
+          [branchId]: {
+            id: 'SHIFT-' + Math.floor(100000 + Math.random() * 900000),
+            openedAt: new Date().toLocaleString(),
+            openingCash: openingCash,
+            salesCash: 0,
+            salesCard: 0,
+            withdrawals: 0
+          }
         }
+      })),
+
+      addSale: (branchId, amount, method) => set((state) => {
+        const currentShift = state.shifts[branchId];
+        if (!currentShift) return state;
+
+        return {
+          shifts: {
+            ...state.shifts,
+            [branchId]: {
+              ...currentShift,
+              salesCash: method === 'cash' ? currentShift.salesCash + amount : currentShift.salesCash,
+              salesCard: method === 'card' ? currentShift.salesCard + amount : currentShift.salesCard
+            }
+          }
+        };
       }),
 
-      addSale: (amount, method) => {
-        const { currentShift } = get();
-        if (!currentShift) return;
+      addWithdrawal: (branchId, amount) => set((state) => {
+        const currentShift = state.shifts[branchId];
+        if (!currentShift) return state;
 
-        set({
-          currentShift: {
-            ...currentShift,
-            salesCash: method === 'cash' ? currentShift.salesCash + amount : currentShift.salesCash,
-            salesCard: method === 'card' ? currentShift.salesCard + amount : currentShift.salesCard
+        return {
+          shifts: {
+            ...state.shifts,
+            [branchId]: {
+              ...currentShift,
+              withdrawals: currentShift.withdrawals + amount
+            }
           }
-        });
-      },
-
-      addWithdrawal: (amount) => {
-        const { currentShift } = get();
-        if (!currentShift) return;
-
-        set({
-          currentShift: {
-            ...currentShift,
-            withdrawals: currentShift.withdrawals + amount
-          }
-        });
-      },
+        };
+      }),
       
-      closeShift: () => set({ currentShift: null }),
+      closeShift: (branchId) => set((state) => {
+        const newShifts = { ...state.shifts };
+        delete newShifts[branchId];
+        return { shifts: newShifts };
+      }),
       
-      logout: () => set({ user: null, activeBranch: null, currentShift: null }),
+      logout: () => set({ user: null, shifts: {} }),
     }),
     {
       name: 'farma-shift-storage', // Nombre de la key en localStorage

@@ -12,13 +12,17 @@ import {
   Barcode,
   CheckCircle2,
   Printer,
-  Loader2
+  Loader2,
+  Lock
 } from 'lucide-react';
 import { cn } from '../../../lib/utils';
 import { useBranchStore } from '../../../stores/branchStore';
 import { useInventoryStore } from '../../../stores/inventoryStore';
 import { useShiftStore } from '../../../stores/shiftStore';
 import { useFocusLock } from '../../../hooks/useFocusLock';
+import type { Customer } from '../../../stores/customerStore';
+import { CustomerSelectorModal } from '../components/CustomerSelectorModal';
+import { useTransactionStore } from '../../../stores/transactionStore';
 
 // ==========================================
 // DEFINICIONES DE TIPOS (Interfaces de Dominio)
@@ -48,11 +52,7 @@ interface CartItem {
   quantity: number;
 }
 
-interface Customer {
-  id: string;
-  name: string;
-  phone?: string;
-}
+// Customer type imported from customerStore
 
 // Los datos de inventarios se cargan dinámicamente desde el Zustand useInventoryStore para lograr aislamiento de silos físico.
 
@@ -60,6 +60,7 @@ export default function POSTerminal() {
   const [searchQuery, setSearchQuery] = useState('');
   const [cart, setCart] = useState<CartItem[]>([]);
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
+  const [isCustomerModalOpen, setIsCustomerModalOpen] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'card'>('cash');
   
   // Estados para la culminación de transacciones
@@ -70,6 +71,7 @@ export default function POSTerminal() {
     total: number;
     paymentMethod: string;
     itemsCount: number;
+    earnedPoints?: number;
   } | null>(null);
   
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -79,6 +81,9 @@ export default function POSTerminal() {
 
   const activeBranch = useBranchStore((state) => state.activeBranch);
   const activeBranchId = activeBranch?.id || 'b-01';
+
+  const currentShift = useShiftStore((state) => state.shifts[activeBranchId]);
+  const isShiftOpen = !!currentShift;
 
   const { inventory, deductStock } = useInventoryStore();
 
@@ -135,13 +140,31 @@ export default function POSTerminal() {
       });
 
       // Acumular la venta en el turno activo en caliente
-      useShiftStore.getState().addSale(totalPaid, paymentMethod === 'cash' ? 'cash' : 'card');
+      useShiftStore.getState().addSale(activeBranchId, totalPaid, paymentMethod === 'cash' ? 'cash' : 'card');
+
+      // Guardar la transacción en el historial global de reportes
+      const sessionUser = useBranchStore.getState().user;
+      const category = cart[0]?.product.category || 'Varios';
+      
+      const earnedPoints = Math.floor(totalPaid * 0.05); // 5% en puntos
+      
+      useTransactionStore.getState().addTransaction({
+        branchId: activeBranchId,
+        branchName: activeBranch?.name || 'Sucursal Desconocida',
+        cashier: sessionUser?.name || 'Cajero Desconocido',
+        total: totalPaid,
+        paymentMethod: paymentMethod === 'cash' ? 'Efectivo' : 'Tarjeta',
+        category: category,
+        earnedPoints: earnedPoints,
+        itemsCount: count
+      });
 
       setLastTransaction({
         id: 'TX-' + Math.floor(100000 + Math.random() * 900000),
         total: totalPaid,
         paymentMethod: paymentMethod === 'cash' ? 'Efectivo (Fondo de Caja)' : 'Terminal de Crédito/Débito',
-        itemsCount: count
+        itemsCount: count,
+        earnedPoints: earnedPoints
       });
       
       setShowSuccessModal(true);
@@ -234,7 +257,25 @@ export default function POSTerminal() {
   return (
     <div className="flex h-[calc(100vh-64px)] w-full bg-slate-50 font-sans antialiased text-slate-900 overflow-hidden">
 
-      <main className="flex-1 flex flex-col border-r border-slate-200 bg-slate-50">
+      <main className="flex-1 flex flex-col border-r border-slate-200 bg-slate-50 relative">
+        {/* BLOQUEO DE CAJA CERRADA */}
+        {!isShiftOpen && (
+          <div className="absolute inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center">
+            <div className="bg-white p-8 rounded-3xl shadow-2xl flex flex-col items-center max-w-md text-center animate-in zoom-in-95 duration-300">
+              <div className="w-20 h-20 bg-slate-100 rounded-full flex items-center justify-center mb-6 border border-slate-200">
+                <Lock className="w-10 h-10 text-slate-400" />
+              </div>
+              <h2 className="text-2xl font-black text-slate-800 tracking-tight">Caja Cerrada</h2>
+              <p className="text-sm font-medium text-slate-500 mt-2 mb-6 leading-relaxed">
+                El sistema de punto de venta está bloqueado. Para procesar transacciones debes realizar primero el <strong>Fondeo de Apertura</strong> de caja para tu turno actual.
+              </p>
+              <div className="px-4 py-2 bg-indigo-50 border border-indigo-100 rounded-xl text-[11px] font-bold text-indigo-700 uppercase tracking-wider">
+                Utiliza el botón "Abrir Caja" en la barra superior
+              </div>
+            </div>
+          </div>
+        )}
+
         <header className="h-16 px-6 border-b border-slate-200 flex items-center justify-between bg-white shadow-sm">
           <div className="flex items-center space-x-3">
             <div className="bg-blue-600 text-white p-2 rounded-lg">
@@ -268,7 +309,7 @@ export default function POSTerminal() {
           </div>
 
           <button 
-            onClick={() => setSelectedCustomer({ id: 'cust_1', name: 'Hernández, Hersan' })}
+            onClick={() => setIsCustomerModalOpen(true)}
             className={cn(
               "flex items-center px-3.5 py-2 rounded-full border transition-colors text-sm font-medium",
               selectedCustomer 
@@ -479,6 +520,13 @@ export default function POSTerminal() {
         </div>
       </aside>
 
+      <CustomerSelectorModal 
+        isOpen={isCustomerModalOpen}
+        onClose={() => setIsCustomerModalOpen(false)}
+        selectedCustomerId={selectedCustomer?.id}
+        onSelectCustomer={setSelectedCustomer}
+      />
+
       {/* MODAL DE ÉXITO DE TRANSACCIÓN */}
       {showSuccessModal && lastTransaction && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
@@ -500,7 +548,13 @@ export default function POSTerminal() {
                   <span>Artículos Vendidos:</span>
                   <span className="font-extrabold text-slate-800">{lastTransaction.itemsCount} uds</span>
                 </div>
-                <div className="pt-2.5 border-t border-slate-200 flex justify-between text-sm font-extrabold text-slate-800">
+                {lastTransaction.earnedPoints !== undefined && (
+                  <div className="flex justify-between text-xs font-semibold text-indigo-500 mt-1">
+                    <span>Puntos Acumulados:</span>
+                    <span className="font-extrabold text-indigo-600">+{lastTransaction.earnedPoints} pts</span>
+                  </div>
+                )}
+                <div className="pt-2.5 border-t border-slate-200 flex justify-between text-sm font-extrabold text-slate-800 mt-2.5">
                   <span>Monto Total Cobrado:</span>
                   <span className="text-base font-black text-emerald-600">C${lastTransaction.total.toFixed(2)}</span>
                 </div>

@@ -16,6 +16,11 @@ import {
 } from 'lucide-react';
 import { useAuthFlow } from '../hooks/useAuthFlow';
 import { cn } from '../../../lib/utils';
+import { useBranchStore } from '../../../stores/branchStore';
+import type { SettingUser } from '../../../stores/branchStore';
+import { useTransactionStore } from '../../../stores/transactionStore';
+import { useCustomerStore } from '../../../stores/customerStore';
+import { useShiftStore } from '../../../stores/shiftStore';
 
 export default function AuthView() {
   const navigate = useNavigate();
@@ -28,6 +33,9 @@ export default function AuthView() {
     handleSelectBranch,
     goBack
   } = useAuthFlow();
+
+  const login = useBranchStore((state) => state.login);
+  const setUsers = useBranchStore((state) => state.setUsers);
 
   // --- MODO: INICIAR SESIÓN vs. REGISTRO (GROWTH HACKING) ---
   const [isLoginMode, setIsLoginMode] = useState(true);
@@ -95,6 +103,38 @@ export default function AuthView() {
 
       console.info('[Zefiro Growth Engine] New Tenant Registered successfully.');
       console.info(`[SaaS Security] Created base user: ${fullName} (${email}) with role PENDING_TENANT.`);
+
+      const newUser: SettingUser = {
+        id: `u-${Date.now()}`,
+        name: fullName,
+        email: email.trim(),
+        role: 'OWNER',
+        roleLabel: 'Propietario',
+        branch: 'Todas (Corporativo)',
+        status: 'active',
+        lastAccess: 'Ahora mismo',
+        color: 'indigo',
+        password: password,
+        permissions: { processSale: true, applyDiscount: true, voidInvoice: true, adjustStock: true, purchaseOrder: true }
+      };
+
+      setUsers([newUser]);
+      
+      // Limpiar las transacciones mock de prueba
+      useTransactionStore.getState().clearTransactions();
+      
+      // Limpiar los clientes mock de prueba
+      useCustomerStore.getState().clearCustomers();
+      
+      // Asegurarnos que la caja (turno) nazca cerrada
+      useShiftStore.getState().closeShift();
+
+      login({
+        id: newUser.id,
+        name: newUser.name,
+        role: 'OWNER',
+        tenantId: `t-${Date.now()}`,
+      });
 
       // Redireccionar programáticamente al Onboarding Wizard (/setup)
       navigate('/setup');

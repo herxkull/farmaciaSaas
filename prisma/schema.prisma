@@ -7,7 +7,6 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
 }
 
 enum Role {
@@ -60,7 +59,7 @@ model Tenant {
   branches      Branch[]
   users         User[]
   products      Product[]
-  batches       Batch[]
+  inventoryBatches InventoryBatch[]
   customers     Customer[]
   sales         Sale[]
   transfers     InventoryTransfer[]
@@ -85,7 +84,7 @@ model Branch {
 
   // Operaciones en la Sucursal
   users         User[]
-  inventories   BranchBatchInventory[]
+  inventoryBatches InventoryBatch[]
   sales         Sale[]
   shifts        CashShift[]
   transfersFrom InventoryTransfer[] @relation("OriginBranch")
@@ -150,7 +149,7 @@ model Product {
   updatedAt     DateTime  @updatedAt @map("updated_at")
 
   // Relaciones
-  batches       Batch[]
+  inventoryBatches InventoryBatch[]
   saleItems     SaleItem[]
 
   @@unique([tenantId, barcode])
@@ -158,12 +157,15 @@ model Product {
   @@map("products")
 }
 
-/// @model Batch
-/// Catálogo de Lotes creados a nivel Cadena/Matriz. Define el ciclo de vida químico.
-model Batch {
+/// @model InventoryBatch
+/// Lote físico atado a una sucursal para control FEFO estricto y prevención de race conditions.
+model InventoryBatch {
   id            String    @id @default(uuid())
   tenantId      String    @map("tenant_id")
   tenant        Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  branchId      String    @map("branch_id")
+  branch        Branch    @relation(fields: [branchId], references: [id], onDelete: Cascade)
 
   productId     String    @map("product_id")
   product       Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
@@ -172,39 +174,20 @@ model Batch {
   expirationDate DateTime @map("expiration_date") // Fecha de caducidad estricta
   costPrice     Decimal   @map("cost_price") @db.Decimal(10, 2) // Costo unitario de adquisición
   
-  createdAt     DateTime  @default(now()) @map("created_at")
-  updatedAt     DateTime  @updatedAt @map("updated_at")
-
-  // Rastreabilidad
-  inventories   BranchBatchInventory[]
-  saleItems     SaleItem[]
-  transferItems InventoryTransferItem[]
-
-  @@unique([tenantId, productId, batchNumber])
-  @@index([expirationDate])
-  @@map("batches")
-}
-
-/// @model BranchBatchInventory
-/// CONTEO FÍSICO DE INVENTARIO POR LOTE Y SUCURSAL. Base de la trazabilidad FEFO.
-model BranchBatchInventory {
-  id            String    @id @default(uuid())
-  tenantId      String    @map("tenant_id")
-  branchId      String    @map("branch_id")
-  branch        Branch    @relation(fields: [branchId], references: [id], onDelete: Cascade)
-  
-  batchId       String    @map("batch_id")
-  batch         Batch     @relation(fields: [batchId], references: [id], onDelete: Cascade)
-
-  quantity      Int       // Cantidad física actual en esta sucursal específica
+  quantity      Int       // Cantidad física actual
   minStockAlert Int       @default(5) @map("min_stock_alert") // Alerta personalizada por sucursal
 
   createdAt     DateTime  @default(now()) @map("created_at")
   updatedAt     DateTime  @updatedAt @map("updated_at")
 
-  @@unique([branchId, batchId]) // Previene duplicados de registros de lotes por sucursal
-  @@index([tenantId, branchId])
-  @@map("branch_batch_inventories")
+  // Rastreabilidad
+  saleItems     SaleItem[]
+  transferItems InventoryTransferItem[]
+
+  @@unique([branchId, productId, batchNumber]) // Previene colisiones de inventario
+  @@index([tenantId, branchId]) // Agiliza filtrado multitenant
+  @@index([expirationDate]) // Agiliza FEFO
+  @@map("inventory_batches")
 }
 
 /// @model Customer
@@ -322,7 +305,7 @@ model SaleItem {
   product       Product   @relation(fields: [productId], references: [id])
 
   batchId       String    @map("batch_id") // Lote del que se extrajeron las unidades
-  batch         Batch     @relation(fields: [batchId], references: [id])
+  batch         InventoryBatch @relation(fields: [batchId], references: [id])
 
   quantity      Int
   unitPrice     Decimal   @map("unit_price") @db.Decimal(10, 2)
@@ -391,7 +374,7 @@ model InventoryTransferItem {
   transfer      InventoryTransfer @relation(fields: [transferId], references: [id], onDelete: Cascade)
 
   batchId       String    @map("batch_id")
-  batch         Batch     @relation(fields: [batchId], references: [id])
+  batch         InventoryBatch @relation(fields: [batchId], references: [id])
 
   requestedQty  Int       @map("requested_qty") // Solicitado
   shippedQty    Int?      @map("shipped_qty")   // Despachado de origen

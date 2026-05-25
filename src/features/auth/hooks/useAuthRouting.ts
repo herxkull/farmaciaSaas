@@ -24,8 +24,9 @@ export function useAuthRouting() {
       return 'branch_select';
     } else {
       // CASO B: Operativo (Cajero/Empleado) -> Relación 1-a-1 con sucursal
-      const assignedId = user.assignedBranchId || 'b-01';
-      const branchToBind = availableBranches.find(b => b.id === assignedId) || null;
+      const fallbackId = availableBranches[0]?.id || 'b-01';
+      const assignedId = user.assignedBranchId || fallbackId;
+      const branchToBind = availableBranches.find(b => b.id === assignedId) || availableBranches[0] || null;
 
       // Inyectar sucursal asignada de forma obligatoria en el store
       setActiveBranch(branchToBind);

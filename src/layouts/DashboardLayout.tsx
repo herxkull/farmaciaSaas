@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Outlet, Link, useLocation } from 'react-router-dom';
+import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
 import { 
   LayoutDashboard, 
   ShoppingCart, 
@@ -18,21 +18,59 @@ import {
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import Topbar from '../components/navigation/Topbar';
+import { useBranchStore } from '../stores/branchStore';
 import CashAuditModal from '../components/pos/CashAuditModal';
 import CommandPalette from '../components/navigation/CommandPalette';
 import { useShiftStore } from '../stores/shiftStore';
 
 export default function DashboardLayout() {
   const location = useLocation();
+  const navigate = useNavigate();
+  const { user } = useBranchStore();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isNotifOpen, setIsNotifOpen] = useState(false);
 
-  const { currentShift } = useShiftStore();
+  const activeBranch = useBranchStore((state) => state.activeBranch);
+  const currentShift = useShiftStore((state) => activeBranch ? state.shifts[activeBranch.id] : null);
   const isShiftOpen = !!currentShift;
 
   const [isAuditModalOpen, setIsAuditModalOpen] = useState(false);
   const [isOpeningFlow, setIsOpeningFlow] = useState(false);
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
+
+  // ========================================================
+  // SEGURIDAD RBAC: PROTECCIÓN DE RUTAS DINÁMICA
+  // ========================================================
+  useEffect(() => {
+    if (!user) {
+      navigate('/login', { replace: true });
+      return;
+    }
+
+    const role = user.role;
+    const path = location.pathname;
+
+    let allowed = false;
+    if (role === 'OWNER' || role === 'SUPER_ADMIN') {
+      allowed = true;
+    } else if (role === 'BRANCH_MANAGER') {
+      allowed = path !== '/app/settings';
+    } else if (role === 'PHARMACIST') {
+      allowed = path === '/app/pos' || path === '/app/inventory' || path === '/app/customers';
+    } else if (role === 'CASHIER') {
+      allowed = path === '/app/pos' || path === '/app/customers';
+    }
+
+    if (!allowed) {
+      console.warn(`[RBAC Guard] Unauthorized attempt to access ${path} as ${role}. Redirecting.`);
+      // Redirigir a la pantalla predeterminada
+      if (role === 'CASHIER' || role === 'PHARMACIST') {
+        navigate('/app/pos', { replace: true });
+      } else {
+        navigate('/app', { replace: true });
+      }
+    }
+  }, [user, location.pathname, navigate]);
 
   // Atajo global Ctrl+K o Cmd+K para abrir/cerrar CommandPalette
   useEffect(() => {
@@ -73,7 +111,7 @@ export default function DashboardLayout() {
     setNotifications(prev => prev.filter(n => n.id !== id));
   };
 
-  const navigation = [
+  const baseNavigation = [
     { name: 'Dashboard', href: '/app', icon: LayoutDashboard },
     { name: 'Terminal POS', href: '/app/pos', icon: ShoppingCart },
     { name: 'Inventario', href: '/app/inventory', icon: Package },
@@ -82,6 +120,49 @@ export default function DashboardLayout() {
     { name: 'Sucursales', href: '/app/branches', icon: GitFork },
     { name: 'Configuración', href: '/app/settings', icon: Settings },
   ];
+
+  const filteredNavigation = baseNavigation.filter(item => {
+    if (!user) return false;
+    const role = user.role;
+
+    if (role === 'CASHIER') {
+      return item.href === '/app/pos' || item.href === '/app/customers';
+    }
+    if (role === 'PHARMACIST') {
+      return item.href === '/app/pos' || item.href === '/app/inventory' || item.href === '/app/customers';
+    }
+    if (role === 'BRANCH_MANAGER') {
+      return item.href !== '/app/settings';
+    }
+    // OWNER / SUPER_ADMIN can access everything
+    return true;
+  });
+
+  const getInitials = (name: string) => {
+    return name
+      .split(' ')
+      .map(n => n[0])
+      .join('')
+      .slice(0, 2)
+      .toUpperCase();
+  };
+
+  const getRoleLabel = (role: string) => {
+    switch (role) {
+      case 'OWNER':
+        return 'Propietario';
+      case 'SUPER_ADMIN':
+        return 'Administrador Global';
+      case 'BRANCH_MANAGER':
+        return 'Gerente Sucursal';
+      case 'PHARMACIST':
+        return 'Químico Regente';
+      case 'CASHIER':
+        return 'Cajero';
+      default:
+        return 'Personal';
+    }
+  };
 
   return (
     <div className="flex h-screen w-full bg-slate-50 overflow-hidden font-sans antialiased text-slate-900">
@@ -103,7 +184,7 @@ export default function DashboardLayout() {
 
         {/* Links de Navegación */}
         <nav className="flex-1 px-4 py-6 space-y-1.5 overflow-y-auto">
-          {navigation.map((item) => {
+          {filteredNavigation.map((item) => {
             const isActive = location.pathname === item.href || (item.href !== '/app' && location.pathname.startsWith(item.href));
             return (
               <Link
@@ -129,14 +210,14 @@ export default function DashboardLayout() {
         {/* Footer de Sidebar (Usuario Logueado) */}
         <div className="p-4 border-t border-slate-200/60 bg-slate-50/50">
           <div className="flex items-center gap-3 p-2 rounded-xl">
-            <div className="w-9 h-9 rounded-full bg-indigo-100 flex items-center justify-center border border-indigo-200 text-indigo-700 font-bold text-sm shadow-inner">
-              HH
+            <div className="w-9 h-9 rounded-full bg-indigo-100 flex items-center justify-center border border-indigo-200 text-indigo-700 font-bold text-sm shadow-inner uppercase font-extrabold">
+              {user ? getInitials(user.name) : 'U'}
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-xs font-bold text-slate-800 truncate">Hersan Hernandez</p>
-              <p className="text-[10px] font-medium text-slate-500 truncate">Gerente Corporativo</p>
+              <p className="text-xs font-bold text-slate-800 truncate">{user ? user.name : 'Usuario'}</p>
+              <p className="text-[10px] font-medium text-slate-500 truncate">{user ? getRoleLabel(user.role) : 'Personal'}</p>
             </div>
-            <Link to="/login" className="text-slate-400 hover:text-rose-600 transition-colors p-1">
+            <Link to="/login" className="text-slate-400 hover:text-rose-600 transition-colors p-1" title="Cerrar Sesión">
               <LogOut className="w-4 h-4" />
             </Link>
           </div>
@@ -180,7 +261,7 @@ export default function DashboardLayout() {
               </button>
             </div>
             <nav className="flex-1 px-4 py-6 space-y-2">
-              {navigation.map((item) => (
+              {filteredNavigation.map((item) => (
                 <Link
                   key={item.name}
                   to={item.href}

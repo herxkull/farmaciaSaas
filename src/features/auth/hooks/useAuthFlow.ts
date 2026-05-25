@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useBranchStore } from '../../../stores/branchStore';
 import { useAuthRouting } from './useAuthRouting';
-import type { AuthUser, BranchInfo } from '../../../stores/branchStore';
+import type { AuthUser, BranchInfo, UserRole } from '../../../stores/branchStore';
 
 export type AuthStep = 'credentials' | 'branch_select';
 
@@ -18,7 +18,8 @@ export function useAuthFlow() {
   // Guardamos al usuario de forma temporal para el paso 2 (sólo para administradores)
   const [tempUser, setTempUser] = useState<AuthUser | null>(null);
 
-  // Lista de sucursales disponibles en el sistema (mapeadas desde el store)
+  // Lista de usuarios y sucursales (mapeadas desde el store)
+  const users = useBranchStore((state) => state.users) || [];
   const availableBranches = useBranchStore((state) => state.availableBranches);
 
   /**
@@ -41,27 +42,36 @@ export function useAuthFlow() {
         return;
       }
 
-      // 2. CONDICIONAL A: Usuario Existente (Cajero Operativo vs Admin)
-      let mockUser: AuthUser;
-
-      if (email === 'cajero@zefiropharmacy.com') {
-        // CASO OPERATIVO: Cajero amarrado a Sucursal Norte ('b-02')
-        mockUser = {
-          id: 'u-550',
-          name: 'Elena Rostova',
-          role: 'CASHIER',
-          tenantId: 't-zefiro-global',
-          assignedBranchId: 'b-02'
-        };
-      } else {
-        // CASO ADMINISTRATIVO: Dueño/Owner con acceso global
-        mockUser = {
-          id: 'u-772',
-          name: 'Hersan Hernandez',
-          role: 'OWNER',
-          tenantId: 't-zefiro-global'
-        };
+      // 2. CONDICIONAL A: Búsqueda dinámica en el store de usuarios (RBAC)
+      const matchedUser = users.find(u => u.email.toLowerCase() === email.trim().toLowerCase());
+      
+      if (!matchedUser) {
+        throw new Error('Usuario no registrado o credenciales inválidas.');
       }
+
+      // Detalle Premium: Soportar la clave prellenada de la demo
+      const isDummyPrefilled = password === '••••••••';
+      const isPasswordMatch = isDummyPrefilled || matchedUser.password === password;
+
+      if (!isPasswordMatch) {
+        throw new Error('Contraseña incorrecta.');
+      }
+
+      if (matchedUser.status === 'suspended') {
+        throw new Error('Su cuenta ha sido suspendida. Contacte al administrador.');
+      }
+
+      // Mapear la sucursal asignada por texto al id correspondiente de la sucursal
+      const assignedBranch = availableBranches.find(b => b.name === matchedUser.branch);
+      const assignedBranchId = assignedBranch ? assignedBranch.id : undefined;
+
+      const mockUser: AuthUser = {
+        id: matchedUser.id,
+        name: matchedUser.name,
+        role: matchedUser.role as UserRole,
+        tenantId: 't-zefiro-global',
+        assignedBranchId: assignedBranchId
+      };
 
       // Procesar redirección RBAC
       const nextStep = handleLoginRedirect(mockUser);
@@ -72,8 +82,8 @@ export function useAuthFlow() {
         setStep('branch_select');
       }
 
-    } catch (err) {
-      setError('Credenciales inválidas o error de conexión.');
+    } catch (err: any) {
+      setError(err.message || 'Credenciales inválidas o error de conexión.');
     } finally {
       setIsLoading(false);
     }

@@ -11,134 +11,16 @@ import {
   Mail,
   Phone,
   MapPin,
-  Percent
+  Percent,
+  AlertTriangle
 } from 'lucide-react';
 import { cn } from '../../../lib/utils';
 
-// ========================================================
-// DOMINIO DE DATOS: CARTERA DE PACIENTES / CLIENTES (CRM)
-// ========================================================
-export interface CustomerPurchase {
-  ticketId: string;
-  date: string;
-  branch: string;
-  total: number;
-  itemsSummary: string;
-}
-
-export interface Customer {
-  id: string;
-  name: string;
-  phone: string;
-  email: string;
-  loyaltyTier: 'VIP' | 'Oro' | 'Plata' | 'Bronce';
-  points: number;
-  ltv: number;
-  lastVisit: string;
-  status: 'active' | 'inactive';
-  taxName?: string;
-  taxId?: string;
-  taxRegime?: string;
-  address?: string;
-  city?: string;
-  creditLimit: number;
-  pendingBalance: number;
-  purchases: CustomerPurchase[];
-}
-
-const INITIAL_CUSTOMERS: Customer[] = [
-  {
-    id: 'CLI-8801',
-    name: 'Carlos Slim Domit',
-    phone: '555-492-3011',
-    email: 'cslim@grupo-carso.com.mx',
-    loyaltyTier: 'VIP',
-    points: 4850,
-    ltv: 185400.00,
-    lastVisit: 'Hoy, 10:12 AM',
-    status: 'active',
-    taxName: 'Grupo Carso S.A.B. de C.V.',
-    taxId: 'GCA9208223B2',
-    taxRegime: '601 - General de Ley Personas Morales',
-    address: 'Av. Paseo de las Palmas #736, Lomas de Chapultepec',
-    city: 'CDMX',
-    creditLimit: 200000.00,
-    pendingBalance: 42500.00,
-    purchases: [
-      { ticketId: 'TX-99012', date: '2026-05-18 10:12', branch: 'Sucursal Centro', total: 1250.00, itemsSummary: '1x Insulina Glargina, 2x Jeringas 1ml' },
-      { ticketId: 'TX-98401', date: '2026-05-10 14:22', branch: 'Sucursal Centro', total: 24500.00, itemsSummary: '1x Medicamento de alta especialidad refrig.' },
-      { ticketId: 'TX-97810', date: '2026-05-02 09:05', branch: 'Sucursal Centro', total: 3400.00, itemsSummary: '3x Ciprofloxacino 500mg, 1x Multivitamínico' }
-    ]
-  },
-  {
-    id: 'CLI-3024',
-    name: 'Ana Gabriela Guevara',
-    phone: '555-102-4955',
-    email: 'aguevara@conade.gob.mx',
-    loyaltyTier: 'Oro',
-    points: 1250,
-    ltv: 24850.50,
-    lastVisit: 'Ayer, 04:30 PM',
-    status: 'active',
-    taxName: 'Ana Gabriela Guevara Espinoza',
-    taxId: 'GUEA770304HP9',
-    taxRegime: '605 - Sueldos y Salarios',
-    address: 'Camino a Santa Teresa #482, Col. Peña Pobre',
-    city: 'CDMX',
-    creditLimit: 50000.00,
-    pendingBalance: 18200.00,
-    purchases: [
-      { ticketId: 'TX-99017', date: '2026-05-17 16:30', branch: 'Sucursal Sur', total: 450.00, itemsSummary: '2x Suplemento Alimenticio Whey, 1x Shaker' },
-      { ticketId: 'TX-98112', date: '2026-05-05 11:15', branch: 'Sucursal Norte', total: 8900.00, itemsSummary: '1x Tratamiento Regenerativo Articular' }
-    ]
-  },
-  {
-    id: 'CLI-0001',
-    name: 'Ing. Hersan Hernandez',
-    phone: '555-123-4567',
-    email: 'hhernandez@zefiro.com',
-    loyaltyTier: 'VIP',
-    points: 3200,
-    ltv: 92400.00,
-    lastVisit: '15 de Mayo, 11:20 AM',
-    status: 'active',
-    taxName: 'Hersan Hernandez Posadas',
-    taxId: 'HEPH880214ABC',
-    taxRegime: '612 - Personas Físicas con Actividades Empresariales',
-    address: 'Av. Insurgentes Sur #1602, Col. San Ángel',
-    city: 'CDMX',
-    creditLimit: 100000.00,
-    pendingBalance: 0.00,
-    purchases: [
-      { ticketId: 'TX-99014', date: '2026-05-15 11:20', branch: 'Sucursal Centro', total: 420.50, itemsSummary: '1x Clonazepam 2mg (Receta Retenida)' },
-      { ticketId: 'TX-98502', date: '2026-05-11 15:45', branch: 'Sucursal Sur', total: 950.00, itemsSummary: '2x Complejo B Forte, 1x Termómetro Infrarrojo' }
-    ]
-  },
-  {
-    id: 'CLI-4022',
-    name: 'Beatriz Gutiérrez Müller',
-    phone: '555-998-1122',
-    email: 'bgutierrez@conahcyt.mx',
-    loyaltyTier: 'Plata',
-    points: 850,
-    ltv: 15300.00,
-    lastVisit: '12 de Mayo, 03:40 PM',
-    status: 'active',
-    taxName: 'Beatriz Gutiérrez Müller',
-    taxId: 'GUMB690113XYZ',
-    taxRegime: '605 - Sueldos y Salarios',
-    address: 'Calle Pino Suárez #30, Centro Histórico',
-    city: 'CDMX',
-    creditLimit: 0.00,
-    pendingBalance: 0.00,
-    purchases: [
-      { ticketId: 'TX-98601', date: '2026-05-12 15:40', branch: 'Sucursal Oriente', total: 1200.00, itemsSummary: '2x Ibuprofeno 400mg, 1x Antihistamínico Loratadina' }
-    ]
-  }
-];
+import { useCustomerStore } from '../../../stores/customerStore';
+import type { Customer } from '../../../stores/customerStore';
 
 export default function CustomersScreen() {
-  const [customers, setCustomers] = useState<Customer[]>(INITIAL_CUSTOMERS);
+  const { customers, addCustomer, updateCustomer } = useCustomerStore();
   
   // FILTRADO Y BÚSQUEDA
   const [searchQuery, setSearchQuery] = useState('');
@@ -182,10 +64,10 @@ export default function CustomersScreen() {
     return customers.filter(c => {
       const term = searchQuery.toLowerCase().trim();
       const matchesSearch = term === '' ||
-        c.name.toLowerCase().includes(term) ||
-        c.phone.includes(term) ||
-        c.email.toLowerCase().includes(term) ||
-        c.id.toLowerCase().includes(term) ||
+        (c.name || '').toLowerCase().includes(term) ||
+        (c.phone || '').includes(term) ||
+        (c.email || '').toLowerCase().includes(term) ||
+        (c.id || '').toLowerCase().includes(term) ||
         (c.taxId && c.taxId.toLowerCase().includes(term));
 
       let matchesFilter = true;
@@ -247,53 +129,41 @@ export default function CustomersScreen() {
   // GUARDAR CLIENTE (SUBMIT)
   const handleSaveCustomerSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!cName || !cPhone) return;
+    if (!cName) return;
 
     if (selectedCustomer) {
       // EDITAR
-      setCustomers(prev => prev.map(c => {
-        if (c.id === selectedCustomer.id) {
-          return {
-            ...c,
-            name: cName,
-            phone: cPhone,
-            email: cEmail,
-            loyaltyTier: cLoyalty,
-            points: Number(cPoints),
-            creditLimit: Number(cCreditLimit),
-            pendingBalance: Number(cPendingBalance),
-            taxName: cTaxName,
-            taxId: cTaxId,
-            taxRegime: cTaxRegime,
-            address: cAddress,
-            city: cCity
-          };
-        }
-        return c;
-      }));
+      updateCustomer(selectedCustomer.id, {
+        name: cName,
+        phone: cPhone,
+        email: cEmail,
+        loyaltyTier: cLoyalty,
+        points: Number(cPoints),
+        creditLimit: Number(cCreditLimit),
+        pendingBalance: Number(cPendingBalance),
+        taxName: cTaxName,
+        taxId: cTaxId,
+        taxRegime: cTaxRegime,
+        address: cAddress,
+        city: cCity
+      });
       alert(`Expediente de "${cName}" actualizado con éxito.`);
     } else {
       // CREAR NUEVO
-      const newCust: Customer = {
-        id: `CLI-${Math.floor(Math.random() * 9000) + 1000}`,
+      addCustomer({
         name: cName,
         phone: cPhone,
-        email: cEmail || 'paciente@zefiro.com',
+        email: cEmail,
         loyaltyTier: cLoyalty,
         points: Number(cPoints) || 0,
-        ltv: 0.00,
-        lastVisit: 'Hoy (Registro)',
-        status: 'active',
-        taxName: cTaxName || cName,
-        taxId: cTaxId || 'XAXX010101000',
+        taxName: cTaxName,
+        taxId: cTaxId,
         taxRegime: cTaxRegime,
-        address: cAddress || 'Dirección de Paciente',
+        address: cAddress,
         city: cCity,
         creditLimit: Number(cCreditLimit) || 0,
         pendingBalance: Number(cPendingBalance) || 0,
-        purchases: []
-      };
-      setCustomers(prev => [newCust, ...prev]);
+      });
       alert(`Paciente "${cName}" registrado e incorporado al programa de fidelidad.`);
     }
 
@@ -425,7 +295,8 @@ export default function CustomersScreen() {
                 </tr>
               ) : (
                 filteredCustomers.map((customer) => {
-                  const initials = customer.name.split(' ').map(n => n[0]).slice(0, 2).join('');
+                  const safeName = customer.name || 'Sin Nombre';
+                  const initials = safeName.split(' ').map(n => n[0] || '').slice(0, 2).join('');
                   const hasCredit = customer.creditLimit > 0;
                   
                   return (
@@ -449,12 +320,13 @@ export default function CustomersScreen() {
                             customer.loyaltyTier === 'VIP' && "bg-amber-50 border-amber-200 text-amber-700",
                             customer.loyaltyTier === 'Oro' && "bg-indigo-50 border-indigo-200 text-indigo-700",
                             customer.loyaltyTier === 'Plata' && "bg-slate-50 border-slate-200 text-slate-700",
-                            customer.loyaltyTier === 'Bronce' && "bg-slate-100 border-slate-200 text-slate-600"
+                            customer.loyaltyTier === 'Bronce' && "bg-slate-100 border-slate-200 text-slate-600",
+                            !customer.loyaltyTier && "bg-slate-100 border-slate-200 text-slate-600"
                           )}>
                             {initials}
                           </div>
                           <div>
-                            <div className="font-bold text-slate-800 text-sm leading-tight">{customer.name}</div>
+                            <div className="font-bold text-slate-800 text-sm leading-tight">{safeName}</div>
                             <div className="text-[10px] text-slate-400 font-semibold mt-0.5 flex items-center gap-1.5">
                               <span>{customer.phone}</span>
                               <span>•</span>
@@ -476,14 +348,14 @@ export default function CustomersScreen() {
                           )}>
                             {customer.loyaltyTier}
                           </span>
-                          <span className="font-extrabold text-[11px] text-slate-700">{customer.points.toLocaleString()} pts</span>
+                          <span className="font-extrabold text-[11px] text-slate-700">{(customer.points || 0).toLocaleString()} pts</span>
                         </div>
                       </td>
 
                       {/* Consumo LTV */}
                       <td className="px-6 py-3.5">
                         <div>
-                          <div className="font-black text-slate-800 text-sm">C${customer.ltv.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+                          <div className="font-black text-slate-800 text-sm">C${(customer.ltv || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
                           {hasCredit && (
                             <div className="text-[9px] text-indigo-600 font-black uppercase tracking-wider mt-0.5">
                               Línea de Crédito Activa
@@ -571,14 +443,14 @@ export default function CustomersScreen() {
                 <div className="flex items-center gap-3">
                   <div className="w-11 h-11 rounded-full bg-indigo-600 text-white font-black text-sm flex items-center justify-center shadow-inner">
                     {selectedCustomer 
-                      ? selectedCustomer.name.split(' ').map(n => n[0]).slice(0, 2).join('') 
+                      ? (selectedCustomer.name || 'SN').split(' ').map(n => n[0] || '').slice(0, 2).join('') 
                       : 'NC'}
                   </div>
                   <div>
                     <h3 className="text-base font-black text-slate-800 tracking-tight leading-tight">
                       {isEditing 
                         ? selectedCustomer ? 'Editar Expediente' : 'Nuevo Paciente / Cliente' 
-                        : selectedCustomer?.name}
+                        : (selectedCustomer?.name || 'Sin Nombre')}
                     </h3>
                     <p className="text-[10px] text-slate-400 font-semibold mt-0.5 flex items-center gap-1.5">
                       <span>{selectedCustomer ? selectedCustomer.id : 'REGISTRO DE CLIENTE'}</span>
@@ -628,7 +500,7 @@ export default function CustomersScreen() {
                     className={cn("pb-2 flex items-center gap-1.5 relative cursor-pointer", profileActiveTab === 'purchases' && "text-indigo-600")}
                   >
                     <History className="w-3.5 h-3.5" />
-                    <span>Compras ({selectedCustomer.purchases.length})</span>
+                    <span>Compras ({(selectedCustomer.purchases || []).length})</span>
                     {profileActiveTab === 'purchases' && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-600"></div>}
                   </button>
                   <button 
@@ -666,7 +538,6 @@ export default function CustomersScreen() {
                       <label className="block text-[9px] font-black text-slate-400 uppercase tracking-wide mb-1.5">Teléfono</label>
                       <input 
                         type="text"
-                        required
                         value={cPhone}
                         onChange={(e) => setCPhone(e.target.value)}
                         placeholder="555-492-3011"
@@ -674,122 +545,13 @@ export default function CustomersScreen() {
                       />
                     </div>
                     <div>
-                      <label className="block text-[9px] font-black text-slate-400 uppercase tracking-wide mb-1.5">Email</label>
-                      <input 
-                        type="email"
-                        value={cEmail}
-                        onChange={(e) => setCEmail(e.target.value)}
-                        placeholder="cslim@grupo-carso.com.mx"
-                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold focus:bg-white focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
-                      />
-                    </div>
-                  </div>
-
-                  <span className="text-[10px] font-black uppercase tracking-wider text-indigo-600 block pt-3 border-t border-slate-100">Facturación Electrónica (Fiscal)</span>
-
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-[9px] font-black text-slate-400 uppercase tracking-wide mb-1.5">RFC / RUC de Facturación</label>
+                      <label className="block text-[9px] font-black text-slate-400 uppercase tracking-wide mb-1.5">Cédula / Identificación</label>
                       <input 
                         type="text"
                         value={cTaxId}
                         onChange={(e) => setCTaxId(e.target.value)}
-                        placeholder="GCA9208223B2"
+                        placeholder="001-000000-0000A"
                         className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold focus:bg-white focus:ring-2 focus:ring-indigo-500 outline-none transition-all font-mono"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-[9px] font-black text-slate-400 uppercase tracking-wide mb-1.5">Régimen Fiscal</label>
-                      <select
-                        value={cTaxRegime}
-                        onChange={(e) => setCTaxRegime(e.target.value)}
-                        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-2 py-2 text-xs font-bold outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
-                      >
-                        <option value="601 - General de Ley Personas Morales">601 - General Personas Morales</option>
-                        <option value="605 - Sueldos y Salarios">605 - Sueldos y Salarios</option>
-                        <option value="612 - Personas Físicas con Actividades Empresariales">612 - P. Físicas Act. Empresariales</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-[9px] font-black text-slate-400 uppercase tracking-wide mb-1.5">Razón Social</label>
-                    <input 
-                      type="text"
-                      value={cTaxName}
-                      onChange={(e) => setCTaxName(e.target.value)}
-                      placeholder="Grupo Carso S.A.B. de C.V."
-                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold focus:bg-white focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
-                    />
-                  </div>
-
-                  <div className="grid grid-cols-3 gap-3">
-                    <div className="col-span-1">
-                      <label className="block text-[9px] font-black text-slate-400 uppercase tracking-wide mb-1.5">Ciudad</label>
-                      <input 
-                        type="text"
-                        value={cCity}
-                        onChange={(e) => setCCity(e.target.value)}
-                        placeholder="CDMX"
-                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold focus:bg-white focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
-                      />
-                    </div>
-                    <div className="col-span-2">
-                      <label className="block text-[9px] font-black text-slate-400 uppercase tracking-wide mb-1.5">Dirección Fiscal Completa</label>
-                      <input 
-                        type="text"
-                        value={cAddress}
-                        onChange={(e) => setCAddress(e.target.value)}
-                        placeholder="Av. Paseo de las Palmas #736, Lomas de Chapultepec"
-                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold focus:bg-white focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
-                      />
-                    </div>
-                  </div>
-
-                  <span className="text-[10px] font-black uppercase tracking-wider text-indigo-600 block pt-3 border-t border-slate-100">Fidelidad y Crédito Operativo</span>
-
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-[9px] font-black text-slate-400 uppercase tracking-wide mb-1.5">Nivel de Lealtad</label>
-                      <select
-                        value={cLoyalty}
-                        onChange={(e) => setCLoyalty(e.target.value as any)}
-                        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-2 py-2 text-xs font-bold outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
-                      >
-                        <option value="VIP">VIP (Platinum)</option>
-                        <option value="Oro">Oro</option>
-                        <option value="Plata">Plata</option>
-                        <option value="Bronce">Bronce (Base)</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-[9px] font-black text-slate-400 uppercase tracking-wide mb-1.5">Puntos de Lealtad</label>
-                      <input 
-                        type="number"
-                        value={cPoints}
-                        onChange={(e) => setCPoints(Number(e.target.value))}
-                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-2 focus:ring-indigo-500"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-[9px] font-black text-slate-400 uppercase tracking-wide mb-1.5">Límite de Crédito (NIO)</label>
-                      <input 
-                        type="number"
-                        value={cCreditLimit}
-                        onChange={(e) => setCCreditLimit(Number(e.target.value))}
-                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-2 focus:ring-indigo-500"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-[9px] font-black text-slate-400 uppercase tracking-wide mb-1.5">Saldo Pendiente (NIO)</label>
-                      <input 
-                        type="number"
-                        value={cPendingBalance}
-                        onChange={(e) => setCPendingBalance(Number(e.target.value))}
-                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-2 focus:ring-indigo-500"
                       />
                     </div>
                   </div>
@@ -879,12 +641,12 @@ export default function CustomersScreen() {
                       <div className="space-y-4 animate-in fade-in duration-200">
                         <span className="text-[9px] font-black uppercase text-indigo-600 tracking-wider block">Historial de Tickets Recientes</span>
                         
-                        {selectedCustomer.purchases.length === 0 ? (
+                        {(selectedCustomer.purchases || []).length === 0 ? (
                           <p className="text-xs text-slate-400 font-bold text-center py-6">Este cliente aún no ha registrado transacciones en caja.</p>
                         ) : (
                           <div className="space-y-3">
-                            {selectedCustomer.purchases.map((ticket, i) => (
-                              <div key={i} className="bg-slate-50 border border-slate-200/50 rounded-2xl p-4 flex flex-col justify-between hover:border-slate-300 transition-all text-xs font-semibold">
+                            {(selectedCustomer.purchases || []).map((ticket, i) => (
+                              <div key={ticket.ticketId || i} className="bg-slate-50 border border-slate-200/50 rounded-2xl p-4 flex flex-col justify-between hover:border-slate-300 transition-all text-xs font-semibold">
                                 <div className="flex justify-between items-start">
                                   <div>
                                     <span className="font-mono font-black text-slate-500 bg-slate-200/60 px-1.5 py-0.5 rounded text-[9px] border border-slate-300/40">
@@ -892,7 +654,7 @@ export default function CustomersScreen() {
                                     </span>
                                     <p className="text-[10px] text-slate-400 font-semibold mt-1">{ticket.date} • {ticket.branch}</p>
                                   </div>
-                                  <span className="font-black text-slate-800 text-sm">C${ticket.total.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                                  <span className="font-black text-slate-800 text-sm">C${(ticket.total || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
                                 </div>
                                 <p className="text-[10px] text-slate-500 font-semibold mt-2.5 pt-2 border-t border-slate-200/50 leading-relaxed italic">
                                   {ticket.itemsSummary}
@@ -915,21 +677,24 @@ export default function CustomersScreen() {
                           <div className="grid grid-cols-2 gap-4">
                             <div>
                               <p className="text-[8px] font-bold text-slate-400 uppercase">Límite de Crédito Autorizado</p>
-                              <p className="font-black text-slate-800 text-base mt-0.5">C${selectedCustomer.creditLimit.toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
+                              <p className="font-black text-slate-800 text-base mt-0.5">C${(selectedCustomer.creditLimit || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
                             </div>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <div className="p-2.5 bg-rose-50 text-rose-600 rounded-xl"><AlertTriangle className="w-5 h-5" /></div>
                             <div>
-                              <p className="text-[8px] font-bold text-slate-400 uppercase">Saldo Pendiente (Deuda)</p>
-                              <p className={cn("font-black text-base mt-0.5", selectedCustomer.pendingBalance > 0 ? "text-rose-600" : "text-slate-800")}>
-                                C${selectedCustomer.pendingBalance.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                              <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Saldo Pendiente</span>
+                              <p className={cn("font-black text-base mt-0.5", (selectedCustomer.pendingBalance || 0) > 0 ? "text-rose-600" : "text-slate-800")}>
+                                C${(selectedCustomer.pendingBalance || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
                               </p>
                             </div>
                           </div>
 
                           <div className="pt-3.5 border-t border-slate-200/50 flex justify-between items-center">
-                            <span className="font-bold text-slate-500">Crédito Disponible:</span>
-                            <span className="font-black text-emerald-600 text-sm">
-                              C${(selectedCustomer.creditLimit - selectedCustomer.pendingBalance).toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                            </span>
+                              <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Crédito Disponible</span>
+                              <p className="font-black text-slate-800 text-base mt-0.5">
+                                C${((selectedCustomer.creditLimit || 0) - (selectedCustomer.pendingBalance || 0)).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                              </p>
                           </div>
                         </div>
 
@@ -945,7 +710,7 @@ export default function CustomersScreen() {
                                 <p className="text-[9px] text-slate-400 font-semibold">Cashback y descuentos exclusivos activos</p>
                               </div>
                             </div>
-                            <span className="font-black text-slate-800 text-base">{selectedCustomer.points.toLocaleString()} Puntos</span>
+                            <span className="font-black text-slate-800 text-base">{(selectedCustomer.points || 0).toLocaleString()} Puntos</span>
                           </div>
 
                           <div className="pt-3 border-t border-slate-200/50 flex justify-between text-[10px] font-bold text-slate-500">

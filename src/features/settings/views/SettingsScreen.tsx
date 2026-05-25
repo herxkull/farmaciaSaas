@@ -8,6 +8,7 @@ import {
   Shield, 
   UserPlus, 
   Eye, 
+  EyeOff, 
   HardDrive, 
   ShieldCheck, 
   MoreVertical, 
@@ -17,28 +18,11 @@ import {
 } from 'lucide-react';
 import { cn } from '../../../lib/utils';
 import { useBranchStore } from '../../../stores/branchStore';
+import type { SettingUser } from '../../../stores/branchStore';
 
 // ========================================================
 // DOMINIO DE DATOS: CONFIGURACIÓN DE SEGURIDAD Y HARDWARE
 // ========================================================
-interface SettingUser {
-  id: string;
-  name: string;
-  email: string;
-  role: string;
-  roleLabel: string;
-  branch: string;
-  status: 'active' | 'suspended';
-  lastAccess: string;
-  color: string;
-  permissions: {
-    processSale: boolean;
-    applyDiscount: boolean;
-    voidInvoice: boolean;
-    adjustStock: boolean;
-    purchaseOrder: boolean;
-  };
-}
 
 interface AuditLog {
   timestamp: string;
@@ -57,6 +41,10 @@ const INITIAL_AUDIT_LOGS: AuditLog[] = [
 
 export default function SettingsScreen() {
   const availableBranches = useBranchStore((state) => state.availableBranches);
+  const activeBranch = useBranchStore((state) => state.activeBranch);
+  const { tenantConfig, setTenantConfig } = useBranchStore();
+  const isDemoBranch = activeBranch?.id?.startsWith('b-0');
+
   const location = useLocation();
   const [activeTab, setActiveTab] = useState<'profile' | 'users' | 'security' | 'hardware' | 'tickets'>(() => {
     if (location.state && typeof location.state === 'object' && 'tab' in location.state) {
@@ -86,45 +74,8 @@ export default function SettingsScreen() {
     { id: 'tickets', name: 'Tickets & Facturación', icon: Receipt },
   ] as const;
 
-  // ESTADO DE USUARIOS RBAC
-  const [users, setUsers] = useState<SettingUser[]>([
-    { 
-      id: 'u-1', 
-      name: 'Juan Pérez', 
-      email: 'jperez@zefiro.com', 
-      role: 'CASHIER', 
-      roleLabel: 'Cajero', 
-      branch: 'Sucursal Norte', 
-      status: 'active', 
-      lastAccess: 'Hace 5 mins', 
-      color: 'slate',
-      permissions: { processSale: true, applyDiscount: false, voidInvoice: false, adjustStock: false, purchaseOrder: false }
-    },
-    { 
-      id: 'u-2', 
-      name: 'Elena Rostova', 
-      email: 'erostova@zefiro.com', 
-      role: 'BRANCH_MANAGER', 
-      roleLabel: 'Gerente Sucursal', 
-      branch: 'Sucursal Centro', 
-      status: 'active', 
-      lastAccess: 'Hoy, 09:15 AM', 
-      color: 'indigo',
-      permissions: { processSale: true, applyDiscount: true, voidInvoice: true, adjustStock: true, purchaseOrder: false }
-    },
-    { 
-      id: 'u-3', 
-      name: 'Dr. Marcus Aurelius', 
-      email: 'maurelius@zefiro.com', 
-      role: 'PHARMACIST', 
-      roleLabel: 'Químico Regente', 
-      branch: 'Todas (Corporativo)', 
-      status: 'suspended', 
-      lastAccess: 'Ayer, 18:40', 
-      color: 'emerald',
-      permissions: { processSale: true, applyDiscount: true, voidInvoice: true, adjustStock: true, purchaseOrder: true }
-    },
-  ]);
+  // ESTADO DE USUARIOS RBAC DESDE STORE GLOBAL
+  const { users, setUsers } = useBranchStore();
 
   // ESTADOS DEL SLIDE-OVER DE USUARIO
   const [showSlideOver, setShowSlideOver] = useState(false);
@@ -134,6 +85,8 @@ export default function SettingsScreen() {
   // CAMPOS DEL FORMULARIO DEL SLIDE-OVER
   const [userName, setUserName] = useState('');
   const [userEmail, setUserEmail] = useState('');
+  const [userPassword, setUserPassword] = useState('');
+  const [showPasswordToggle, setShowPasswordToggle] = useState(false);
   const [userRole, setUserRole] = useState('CASHIER');
   const [userBranch, setUserBranch] = useState('Sucursal Centro');
   const [permProcessSale, setPermProcessSale] = useState(true);
@@ -163,6 +116,20 @@ export default function SettingsScreen() {
   const [isSavingHardware, setIsSavingHardware] = useState(false);
   const [saveHardwareSuccess, setSaveHardwareSuccess] = useState(false);
 
+  // ESTADOS DE CONFIGURACIÓN (LOCAL PARA EDICIÓN)
+  const [localChainName, setLocalChainName] = useState(tenantConfig?.chainName || '');
+  const [localRfc, setLocalRfc] = useState(tenantConfig?.rfc || '');
+  const [localReceiptHeader, setLocalReceiptHeader] = useState(tenantConfig?.receiptHeader || '');
+
+  // Sincronizar si cambia el store externamente
+  useEffect(() => {
+    if (tenantConfig) {
+      setLocalChainName(tenantConfig.chainName);
+      setLocalRfc(tenantConfig.rfc);
+      setLocalReceiptHeader(tenantConfig.receiptHeader);
+    }
+  }, [tenantConfig]);
+
   // Cierra menú contextual de usuarios al clic fuera
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -180,6 +147,8 @@ export default function SettingsScreen() {
     setTargetUserId(user.id);
     setUserName(user.name);
     setUserEmail(user.email);
+    setUserPassword(user.password || '');
+    setShowPasswordToggle(false);
     setUserRole(user.role);
     setUserBranch(user.branch);
     
@@ -200,6 +169,8 @@ export default function SettingsScreen() {
     setTargetUserId(null);
     setUserName('');
     setUserEmail('');
+    setUserPassword('');
+    setShowPasswordToggle(false);
     setUserRole('CASHIER');
     setUserBranch('Sucursal Centro');
     
@@ -226,6 +197,7 @@ export default function SettingsScreen() {
             ...u,
             name: userName,
             email: userEmail,
+            password: userPassword,
             role: userRole,
             roleLabel: userRole === 'CASHIER' ? 'Cajero' : userRole === 'PHARMACIST' ? 'Químico Regente' : 'Gerente Sucursal',
             branch: userBranch,
@@ -247,6 +219,7 @@ export default function SettingsScreen() {
         id: `u-${Date.now()}`,
         name: userName,
         email: userEmail,
+        password: userPassword,
         role: userRole,
         roleLabel: userRole === 'CASHIER' ? 'Cajero' : userRole === 'PHARMACIST' ? 'Químico Regente' : 'Gerente Sucursal',
         branch: userBranch,
@@ -363,17 +336,20 @@ export default function SettingsScreen() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
                   <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-2">Razón Social</label>
-                  <input type="text" defaultValue="Zefiro Pharmacy Group S.A. de C.V." className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-medium focus:ring-2 focus:ring-indigo-500 focus:bg-white outline-none transition-all" />
+                  <input type="text" value={localChainName} onChange={(e) => setLocalChainName(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-medium focus:ring-2 focus:ring-indigo-500 focus:bg-white outline-none transition-all" />
                 </div>
                 <div>
                   <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-2">RFC Corporativo</label>
-                  <input type="text" defaultValue="ZPG202605XYZ" className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-medium focus:ring-2 focus:ring-indigo-500 focus:bg-white outline-none transition-all" />
+                  <input type="text" value={localRfc} onChange={(e) => setLocalRfc(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-medium focus:ring-2 focus:ring-indigo-500 focus:bg-white outline-none transition-all" />
                 </div>
               </div>
 
               <div className="pt-6 border-t border-slate-100 flex justify-end">
                 <button 
-                  onClick={() => alert('Información corporativa actualizada exitosamente.')}
+                  onClick={() => {
+                    setTenantConfig({ chainName: localChainName, rfc: localRfc });
+                    alert('Información corporativa actualizada exitosamente.');
+                  }}
                   className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-extrabold flex items-center gap-2 shadow-md active:scale-95 transition-all cursor-pointer"
                 >
                   <Save className="w-4 h-4" /> Guardar Cambios
@@ -398,21 +374,23 @@ export default function SettingsScreen() {
                 </button>
               </div>
 
-              <div className="border border-slate-200/80 rounded-2xl overflow-hidden">
-                <table className="w-full text-left text-xs">
-                  <thead>
-                    <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 font-extrabold">
-                      <th className="px-4 py-3 uppercase tracking-wider">Nombre / Correo</th>
-                      <th className="px-4 py-3 uppercase tracking-wider">Rol Clínico</th>
-                      <th className="px-4 py-3 uppercase tracking-wider">Sucursal Asignada</th>
-                      <th className="px-4 py-3 uppercase tracking-wider">Estado</th>
-                      <th className="px-4 py-3 uppercase tracking-wider">Último Acceso</th>
-                      <th className="px-4 py-3 uppercase tracking-wider text-right">Acciones</th>
+
+              <div className="border border-slate-200/80 rounded-2xl overflow-x-auto max-h-[440px] overflow-y-auto scrollbar-thin relative">
+                <table className="w-full text-left text-xs min-w-[750px] border-collapse">
+                  <thead className="sticky top-0 z-10 bg-slate-50 shadow-[0_1px_0_0_rgba(226,232,240,0.8)]">
+                    <tr className="text-slate-500 font-extrabold">
+                      <th className="px-4 py-3 bg-slate-50 uppercase tracking-wider sticky top-0 z-10">Nombre / Correo</th>
+                      <th className="px-4 py-3 bg-slate-50 uppercase tracking-wider sticky top-0 z-10">Rol Clínico</th>
+                      <th className="px-4 py-3 bg-slate-50 uppercase tracking-wider sticky top-0 z-10">Sucursal Asignada</th>
+                      <th className="px-4 py-3 bg-slate-50 uppercase tracking-wider sticky top-0 z-10">Estado</th>
+                      <th className="px-4 py-3 bg-slate-50 uppercase tracking-wider sticky top-0 z-10">Último Acceso</th>
+                      <th className="px-4 py-3 bg-slate-50 uppercase tracking-wider text-right sticky top-0 z-10">Acciones</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 bg-white">
-                    {users.map((user) => {
+                    {users.map((user, index) => {
                       const isDropdownOpen = activeUserDropdown === user.id;
+                      const openUpwards = users.length > 1 && index === users.length - 1;
                       
                       return (
                         <tr key={user.id} className="hover:bg-slate-50/50 font-medium text-slate-700">
@@ -422,10 +400,10 @@ export default function SettingsScreen() {
                           </td>
                           <td className="px-4 py-3">
                             <span className={cn(
-                              "inline-flex items-center gap-1 px-2 py-0.5 rounded text-[9px] uppercase tracking-wider font-extrabold border",
-                              user.color === 'slate' && "bg-slate-50 border-slate-200 text-slate-700",
-                              user.color === 'indigo' && "bg-indigo-50 border-indigo-100 text-indigo-700",
-                              user.color === 'emerald' && "bg-emerald-50 border-emerald-100 text-emerald-700"
+                                "inline-flex items-center gap-1 px-2 py-0.5 rounded text-[9px] uppercase tracking-wider font-extrabold border",
+                                user.color === 'slate' && "bg-slate-50 border-slate-200 text-slate-700",
+                                user.color === 'indigo' && "bg-indigo-50 border-indigo-100 text-indigo-700",
+                                user.color === 'emerald' && "bg-emerald-50 border-emerald-100 text-emerald-700"
                             )}>
                               <Shield className="w-3 h-3" /> {user.roleLabel}
                             </span>
@@ -433,13 +411,13 @@ export default function SettingsScreen() {
                           <td className="px-4 py-3 font-bold text-slate-500">{user.branch}</td>
                           <td className="px-4 py-3">
                             <span className={cn(
-                              "inline-flex px-2 py-0.5 rounded-[5px] text-[8px] font-black uppercase tracking-wider border",
-                              user.status === 'active' 
-                                ? "bg-emerald-50 border-emerald-100 text-emerald-700" 
-                                : "bg-rose-50 border-rose-100 text-rose-700"
-                            )}>
-                              {user.status === 'active' ? 'Activo' : 'Suspendido'}
-                            </span>
+                                "inline-flex px-2 py-0.5 rounded-[5px] text-[8px] font-black uppercase tracking-wider border",
+                                user.status === 'active' 
+                                  ? "bg-emerald-50 border-emerald-100 text-emerald-700" 
+                                  : "bg-rose-50 border-rose-100 text-rose-700"
+                              )}>
+                                {user.status === 'active' ? 'Activo' : 'Suspendido'}
+                              </span>
                           </td>
                           <td className="px-4 py-3 font-semibold text-slate-400">{user.lastAccess}</td>
                           <td className="px-4 py-3 text-right relative" ref={isDropdownOpen ? userMenuRef : null}>
@@ -454,7 +432,10 @@ export default function SettingsScreen() {
                             </button>
 
                             {isDropdownOpen && (
-                              <div className="absolute right-0 mt-2 w-44 bg-white border border-slate-200 rounded-2xl shadow-xl p-1.5 text-left z-40">
+                              <div className={cn(
+                                "absolute right-0 w-44 bg-white border border-slate-200 rounded-2xl shadow-xl p-1.5 text-left z-50",
+                                openUpwards ? "bottom-full mb-2" : "top-full mt-2"
+                              )}>
                                 <button 
                                   onClick={() => handleEditUserClick(user)}
                                   className="w-full text-left px-3 py-1.5 hover:bg-slate-50 rounded-lg text-[11px] font-bold text-slate-700 cursor-pointer transition-colors"
@@ -480,6 +461,12 @@ export default function SettingsScreen() {
                         </tr>
                       );
                     })}
+                    {/* Fila espaciadora para dar respiración al final y evitar recortes de menús de acciones */}
+                    {users.length > 0 && (
+                      <tr className="h-14 pointer-events-none">
+                        <td colSpan={6} className="border-t-0 bg-transparent"></td>
+                      </tr>
+                    )}
                   </tbody>
                 </table>
               </div>
@@ -590,7 +577,7 @@ export default function SettingsScreen() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 bg-white">
-                      {INITIAL_AUDIT_LOGS.map((log, i) => (
+                      {isDemoBranch ? INITIAL_AUDIT_LOGS.map((log, i) => (
                         <tr key={i} className="hover:bg-slate-50/30 text-slate-600 font-semibold">
                           <td className="px-4 py-2.5 font-mono text-[10px] text-slate-400">{log.timestamp}</td>
                           <td className="px-4 py-2.5 font-bold text-slate-700">{log.user}</td>
@@ -607,7 +594,13 @@ export default function SettingsScreen() {
                             </span>
                           </td>
                         </tr>
-                      ))}
+                      )) : (
+                        <tr>
+                          <td colSpan={5} className="px-4 py-8 text-center text-slate-400 font-bold text-xs">
+                            No hay registros de auditoría recientes para esta cadena.
+                          </td>
+                        </tr>
+                      )}
                     </tbody>
                   </table>
                 </div>
@@ -770,7 +763,7 @@ export default function SettingsScreen() {
                 <div className="md:col-span-2 space-y-4">
                   <div>
                     <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-2">Mensaje de Cabecera</label>
-                    <textarea rows={2} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white font-medium transition-all" placeholder="Ej. ¡Gracias por su compra!" defaultValue="Zefiro Pharmacies - Salud Cerca de Ti" />
+                    <textarea rows={2} value={localReceiptHeader} onChange={(e) => setLocalReceiptHeader(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white font-medium transition-all" placeholder="Ej. ¡Gracias por su compra!" />
                   </div>
                   <div>
                     <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-2">Leyenda de Garantía / Devoluciones</label>
@@ -785,8 +778,8 @@ export default function SettingsScreen() {
                     <Eye className="w-4 h-4 text-slate-400" />
                   </div>
                   <div className="bg-white shadow-inner p-4 border-dashed border-2 border-slate-300 text-[10px] font-mono leading-snug space-y-2 text-center text-slate-600">
-                    <div className="font-bold text-slate-800 uppercase">Zefiro Pharmacies - Salud Cerca de Ti</div>
-                    <div>Av. Hidalgo #450, Centro</div>
+                    <div className="font-bold text-slate-800 uppercase">{localReceiptHeader}</div>
+                    <div>{activeBranch?.address || 'Av. Hidalgo #450, Centro'}</div>
                     <div className="h-px border-b border-dashed border-slate-300 my-2"></div>
                     <div className="flex justify-between">
                       <span>1x Paracetamol</span>
@@ -804,7 +797,10 @@ export default function SettingsScreen() {
 
               <div className="pt-6 border-t border-slate-100 flex justify-end">
                 <button 
-                  onClick={() => alert('Diseño de ticket impreso actualizado exitosamente.')}
+                  onClick={() => {
+                    setTenantConfig({ receiptHeader: localReceiptHeader });
+                    alert('Diseño de ticket impreso actualizado exitosamente.');
+                  }}
                   className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-extrabold flex items-center gap-2 shadow-md active:scale-95 transition-all cursor-pointer"
                 >
                   <Save className="w-4 h-4" /> Guardar Diseño
@@ -870,6 +866,31 @@ export default function SettingsScreen() {
                     placeholder="erostova@zefiro.com"
                     className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold focus:bg-white focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
                   />
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wide mb-1.5">Contraseña de Acceso</label>
+                  <div className="relative">
+                    <input 
+                      type={showPasswordToggle ? "text" : "password"}
+                      required
+                      value={userPassword}
+                      onChange={(e) => setUserPassword(e.target.value)}
+                      placeholder="••••••••"
+                      className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold focus:bg-white focus:ring-2 focus:ring-indigo-500 outline-none transition-all pr-10"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPasswordToggle(!showPasswordToggle)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer flex items-center justify-center"
+                    >
+                      {showPasswordToggle ? (
+                        <EyeOff className="w-4 h-4" />
+                      ) : (
+                        <Eye className="w-4 h-4" />
+                      )}
+                    </button>
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">

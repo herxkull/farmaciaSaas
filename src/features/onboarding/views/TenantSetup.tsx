@@ -2,14 +2,67 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Wind, Building2, Store, ArrowRight, CheckCircle2 } from 'lucide-react';
 import { cn } from '../../../lib/utils';
+import { useBranchStore } from '../../../stores/branchStore';
+import type { BranchInfo } from '../../../stores/branchStore';
+import { useInventoryStore } from '../../../stores/inventoryStore';
 
 export default function TenantSetup() {
   const navigate = useNavigate();
   const [step, setStep] = useState(1);
 
+  const setAvailableBranches = useBranchStore((state) => state.setAvailableBranches);
+  const setActiveBranch = useBranchStore((state) => state.setActiveBranch);
+
+  const [chainName, setChainName] = useState('');
+  const [rfc, setRfc] = useState('');
+  const [branchName, setBranchName] = useState('');
+  const [branchCode, setBranchCode] = useState('');
+  const [address, setAddress] = useState('');
+
   const handleNext = () => {
-    if (step < 2) setStep(step + 1);
-    else navigate('/app'); // Termina el wizard
+    if (step < 2) {
+      setStep(step + 1);
+    } else {
+      // Termina el wizard: crear la primera sucursal
+      const newBranch: BranchInfo = {
+        id: `b-${Date.now()}`,
+        name: branchName || 'Mi Sucursal',
+        code: branchCode || 'SUC-01',
+        isActive: true,
+        config: {
+          allowManualDiscount: true,
+          requirePrescriptionCapture: true,
+          taxPercentage: 15,
+          currency: 'MXN', // Or whatever default
+        },
+        city: 'Ciudad',
+        address: address || 'Dirección',
+        healthStatus: 'optimal',
+        connectivity: 'online',
+        manager: 'Propietario',
+        activeShifts: 0,
+        pendingTransfers: 0,
+        coverage: '100%',
+        sales: '$0',
+      };
+
+      // Reemplazamos los datos de prueba (test pharmacy) por la nueva sucursal real
+      setAvailableBranches([newBranch]);
+      setActiveBranch(newBranch);
+      
+      const setTenantConfig = useBranchStore.getState().setTenantConfig;
+      setTenantConfig({
+        chainName: chainName || 'Mi Cadena Farmacéutica',
+        rfc: rfc || 'XAXX010101000',
+        receiptHeader: chainName || 'Mi Cadena Farmacéutica'
+      });
+
+      // Inicializar el inventario base para la nueva sucursal
+      const initializeBranch = useInventoryStore.getState().initializeBranch;
+      initializeBranch(newBranch.id);
+      
+      navigate('/app');
+    }
   };
 
   return (
@@ -60,15 +113,18 @@ export default function TenantSetup() {
                   <label className="block text-xs font-bold uppercase tracking-wider text-slate-500">Nombre de la Cadena / Farmacia</label>
                   <input
                     type="text"
+                    value={chainName}
+                    onChange={(e) => setChainName(e.target.value)}
                     className="mt-2 block w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
                     placeholder="Ej. Farmacias del Puerto"
-                    defaultValue="Farmacia San José Corporativo"
                   />
                 </div>
                 <div>
                   <label className="block text-xs font-bold uppercase tracking-wider text-slate-500">RFC / Identificación Fiscal</label>
                   <input
                     type="text"
+                    value={rfc}
+                    onChange={(e) => setRfc(e.target.value)}
                     className="mt-2 block w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
                     placeholder="Ej. FDP990101XYZ"
                   />
@@ -88,18 +144,20 @@ export default function TenantSetup() {
                     <label className="block text-xs font-bold uppercase tracking-wider text-slate-500">Nombre de Sucursal</label>
                     <input
                       type="text"
+                      value={branchName}
+                      onChange={(e) => setBranchName(e.target.value)}
                       className="mt-2 block w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
                       placeholder="Ej. Matriz Centro"
-                      defaultValue="Sucursal Centro"
                     />
                   </div>
                   <div>
                     <label className="block text-xs font-bold uppercase tracking-wider text-slate-500">Código de Sucursal</label>
                     <input
                       type="text"
+                      value={branchCode}
+                      onChange={(e) => setBranchCode(e.target.value)}
                       className="mt-2 block w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
                       placeholder="Ej. SC-01"
-                      defaultValue="SC-01"
                     />
                   </div>
                 </div>
@@ -107,6 +165,8 @@ export default function TenantSetup() {
                   <label className="block text-xs font-bold uppercase tracking-wider text-slate-500">Dirección Física</label>
                   <input
                     type="text"
+                    value={address}
+                    onChange={(e) => setAddress(e.target.value)}
                     className="mt-2 block w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
                     placeholder="Av. Libertad 123, Ciudad de México"
                   />
@@ -123,7 +183,7 @@ export default function TenantSetup() {
             <button
               type="button"
               onClick={() => setStep(step - 1)}
-              className="text-sm font-bold text-slate-500 hover:text-slate-800 px-4 py-2"
+              className="text-sm font-bold text-slate-500 hover:text-slate-800 px-4 py-2 cursor-pointer"
             >
               Atrás
             </button>
@@ -134,7 +194,7 @@ export default function TenantSetup() {
           <button
             type="button"
             onClick={handleNext}
-            className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3.5 rounded-2xl text-sm font-bold flex items-center gap-2 shadow-lg shadow-indigo-600/20 active:scale-98 transition-all"
+            className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3.5 rounded-2xl text-sm font-bold flex items-center gap-2 shadow-lg shadow-indigo-600/20 active:scale-98 transition-all cursor-pointer"
           >
             {step === 1 ? "Continuar a Sucursal" : "Finalizar e Iniciar"}
             <ArrowRight className="w-4 h-4" />

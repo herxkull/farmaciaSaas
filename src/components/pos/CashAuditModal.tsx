@@ -38,8 +38,12 @@ const COINS = [
   { value: 1, label: 'C$1 NIO', isBill: false },
 ];
 
+import { useBranchStore } from '../../stores/branchStore';
+
 export default function CashAuditModal({ isOpen, onClose, isOpeningFlow = false }: CashAuditModalProps) {
-  const { currentShift, openShift, closeShift, user, activeBranch } = useShiftStore();
+  const activeBranch = useBranchStore((state) => state.activeBranch);
+  const currentShift = useShiftStore((state) => activeBranch ? state.shifts[activeBranch.id] : null);
+  const { openShift, closeShift, user } = useShiftStore();
 
   // --- ESTADO PARA APERTURA DE CAJA ---
   const [openingCashInput, setOpeningCashInput] = useState<string>('2000');
@@ -128,7 +132,9 @@ export default function CashAuditModal({ isOpen, onClose, isOpeningFlow = false 
     // Simular conexión segura y registro de auditoría
     await new Promise(resolve => setTimeout(resolve, 800));
     
-    openShift(fund);
+    if (activeBranch) {
+      openShift(activeBranch.id, fund);
+    }
     setIsOpeningSubmitting(false);
     onClose();
   };
@@ -151,10 +157,16 @@ export default function CashAuditModal({ isOpen, onClose, isOpeningFlow = false 
       await new Promise(resolve => setTimeout(resolve, 150));
     }
 
-    await new Promise(resolve => setTimeout(resolve, 400));
+    // Limpiar los clientes mock de prueba
+    useCustomerStore.getState().clearCustomers();
+    
+    // Asegurarnos que la caja (turno) nazca cerrada
+    useShiftStore.getState().logout();
     
     // Cerrar el turno en el ShiftStore
-    closeShift();
+    if (activeBranch) {
+      closeShift(activeBranch.id);
+    }
     setIsPrintingTicket(false);
     onClose();
   };

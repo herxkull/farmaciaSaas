@@ -14,40 +14,27 @@ import {
   Check, 
   Loader2, 
   BarChart3, 
-  AlertCircle
+  AlertCircle,
+  Layers
 } from 'lucide-react';
 import { cn } from '../../../lib/utils';
 import { useBranchStore } from '../../../stores/branchStore';
 
-// ========================================================
-// DOMINIO DE DATOS: TRANSACCIONES HISTÓRICAS PARA EL BI
-// ========================================================
-interface Transaction {
-  id: string;
-  date: string;
-  branchId: string;
-  branchName: string;
-  cashier: string;
-  total: number;
-  paymentMethod: 'Efectivo' | 'Tarjeta' | 'Mixto';
-  category: string;
-}
-
-const TRANSACTION_DATA: Transaction[] = [
-  { id: 'TX-99012', date: '2026-05-18 11:24', branchId: 'b-01', branchName: 'Sucursal Centro', cashier: 'Hernández, Hersan', total: 420.50, paymentMethod: 'Efectivo', category: 'Controlados' },
-  { id: 'TX-99013', date: '2026-05-18 10:45', branchId: 'b-02', branchName: 'Sucursal Norte', cashier: 'Pérez, Ana', total: 1250.00, paymentMethod: 'Tarjeta', category: 'Antibióticos' },
-  { id: 'TX-99014', date: '2026-05-18 09:12', branchId: 'b-01', branchName: 'Sucursal Centro', cashier: 'Hernández, Hersan', total: 85.00, paymentMethod: 'Efectivo', category: 'Gastroenterología' },
-  { id: 'TX-99015', date: '2026-05-17 18:30', branchId: 'b-02', branchName: 'Sucursal Norte', cashier: 'Gómez, Carlos', total: 185.00, paymentMethod: 'Tarjeta', category: 'Controlados' },
-  { id: 'TX-99016', date: '2026-05-17 16:15', branchId: 'b-01', branchName: 'Sucursal Centro', cashier: 'Hernández, Hersan', total: 320.00, paymentMethod: 'Mixto', category: 'Analgésicos' },
-  { id: 'TX-99017', date: '2026-05-17 14:02', branchId: 'b-02', branchName: 'Sucursal Norte', cashier: 'Pérez, Ana', total: 450.00, paymentMethod: 'Tarjeta', category: 'Endocrinología' },
-  { id: 'TX-99018', date: '2026-05-16 12:45', branchId: 'b-01', branchName: 'Sucursal Centro', cashier: 'Gómez, Carlos', total: 110.00, paymentMethod: 'Efectivo', category: 'Antihistamínicos' },
-  { id: 'TX-99019', date: '2026-05-16 10:30', branchId: 'b-02', branchName: 'Sucursal Norte', cashier: 'Pérez, Ana', total: 55.00, paymentMethod: 'Efectivo', category: 'Analgésicos' },
-  { id: 'TX-99020', date: '2026-05-15 17:40', branchId: 'b-01', branchName: 'Sucursal Centro', cashier: 'Hernández, Hersan', total: 640.00, paymentMethod: 'Tarjeta', category: 'Antibióticos' },
-  { id: 'TX-99021', date: '2026-05-15 15:20', branchId: 'b-02', branchName: 'Sucursal Norte', cashier: 'Gómez, Carlos', total: 95.00, paymentMethod: 'Efectivo', category: 'Gastroenterología' }
-];
+import { useTransactionStore } from '../../../stores/transactionStore';
+import type { Transaction } from '../../../stores/transactionStore';
+import { useInventoryStore } from '../../../stores/inventoryStore';
 
 export default function ReportsScreen() {
   const availableBranches = useBranchStore((state) => state.availableBranches);
+  const activeBranch = useBranchStore((state) => state.activeBranch);
+  const transactions = useTransactionStore((state) => state.transactions);
+  const inventory = useInventoryStore((state) => state.inventory);
+  
+  const activeBranchId = activeBranch?.id || 'b-01';
+  const branchInventory = inventory[activeBranchId] || [];
+  
+  const totalInventoryValue = branchInventory.reduce((sum, item) => sum + (item.salePrice * item.stockTotal), 0);
+  const totalItemsCount = branchInventory.reduce((sum, item) => sum + item.stockTotal, 0);
   const [activeTab, setActiveTab] = useState<'bi' | 'compliance'>('bi');
   const [isFiltersOpen, setIsFiltersOpen] = useState(true);
 
@@ -65,9 +52,12 @@ export default function ReportsScreen() {
   const [scheduleEmail, setScheduleEmail] = useState('');
   const [scheduleFreq, setScheduleFreq] = useState('daily');
 
+  // ESTADO DEL TICKET (VER COPIA)
+  const [selectedTicket, setSelectedTicket] = useState<Transaction | null>(null);
+
   // FILTRADO DINÁMICO REACTIVO DE VENTAS
   const filteredTransactions = useMemo(() => {
-    return TRANSACTION_DATA.filter(t => {
+    return transactions.filter(t => {
       // Filtrar Sucursal
       if (selectedBranch !== 'all' && t.branchId !== selectedBranch) return false;
       // Filtrar Cajero
@@ -375,7 +365,11 @@ export default function ReportsScreen() {
                     </tr>
                   ) : (
                     filteredTransactions.map((tx) => (
-                      <tr key={tx.id} className="hover:bg-slate-50/40 group transition-colors">
+                      <tr 
+                        key={tx.id} 
+                        onClick={() => setSelectedTicket(tx)}
+                        className="hover:bg-slate-50/40 group transition-colors cursor-pointer"
+                      >
                         <td className="px-6 py-3.5">
                           <span className="font-mono text-xs font-bold text-slate-500 bg-slate-100 group-hover:bg-indigo-50 group-hover:text-indigo-700 px-2 py-0.5 rounded transition-colors">
                             {tx.id}
@@ -426,7 +420,7 @@ export default function ReportsScreen() {
       {/* TAB 2: REPORTES LEGALES Y DE CUMPLIMIENTO               */}
       {/* ======================================================== */}
       {activeTab === 'compliance' && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 animate-in fade-in duration-200">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 animate-in fade-in duration-200">
           
           {/* CARD: REPORTE FINANCIERO */}
           <div className="bg-white border border-slate-200/70 rounded-2xl p-6 hover:shadow-md transition-all flex flex-col justify-between group">
@@ -483,6 +477,51 @@ export default function ReportsScreen() {
                   className="px-3.5 py-2 bg-slate-50 hover:bg-slate-100 text-slate-600 border border-slate-200 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer"
                 >
                   <Printer className="w-3.5 h-3.5" /> Imprimir Libro de Actas
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* CARD: VALORACIÓN DE INVENTARIO */}
+          <div className="bg-white border border-slate-200/70 rounded-2xl p-6 hover:shadow-md transition-all flex flex-col justify-between group">
+            <div>
+              <div className="flex items-center justify-between mb-4">
+                <div className="p-2.5 bg-blue-50 text-blue-600 rounded-xl border border-blue-100 group-hover:scale-105 transition-transform">
+                  <Layers className="w-5 h-5" />
+                </div>
+                <span className="text-[10px] font-bold uppercase tracking-wider bg-indigo-50 border border-indigo-100 text-indigo-700 px-2 py-0.5 rounded">En Tiempo Real</span>
+              </div>
+              <h3 className="text-base font-extrabold text-slate-800">Valoración de Inventario</h3>
+              <p className="text-xs text-slate-400 mt-1 leading-relaxed font-medium">Reporte de auditoría del valor total de la mercancía en stock (Retail Value) y existencias físicas actuales de la sucursal.</p>
+              
+              <div className="mt-4 p-3 bg-slate-50 border border-slate-100 rounded-xl">
+                <div className="flex justify-between items-center mb-1">
+                  <span className="text-[10px] font-black uppercase text-slate-500">Valor Estimado (PVP)</span>
+                  <span className="text-sm font-black text-slate-800">C${totalInventoryValue.toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-[10px] font-black uppercase text-slate-500">Unidades Físicas</span>
+                  <span className="text-xs font-bold text-slate-600">{totalItemsCount} uds</span>
+                </div>
+              </div>
+            </div>
+            
+            <div className="mt-6 pt-4 border-t border-slate-100 flex items-center justify-between gap-2">
+              <span className="text-[10px] font-bold text-slate-400">Sincronizado ahora</span>
+              <div className="flex items-center gap-2">
+                <button 
+                  onClick={() => alert('Exportando Reporte de Valoración de Inventario a Excel...')}
+                  className="p-2 bg-slate-50 hover:bg-slate-100 text-slate-500 rounded-lg border border-slate-200 cursor-pointer" 
+                  title="Excel"
+                >
+                  <FileSpreadsheet className="w-4 h-4" />
+                </button>
+                <button 
+                  onClick={() => alert('Imprimiendo Reporte de Valoración de Inventario...')}
+                  className="p-2 bg-slate-50 hover:bg-slate-100 text-slate-500 rounded-lg border border-slate-200 cursor-pointer" 
+                  title="Imprimir"
+                >
+                  <Printer className="w-4 h-4" />
                 </button>
               </div>
             </div>
@@ -579,6 +618,77 @@ export default function ReportsScreen() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL DE TICKET DE VENTA */}
+      {selectedTicket && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-md bg-white border border-slate-200 rounded-3xl shadow-2xl p-6 animate-in zoom-in duration-200 relative">
+            
+            <button 
+              onClick={() => setSelectedTicket(null)}
+              className="absolute top-4 right-4 p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-full transition-colors"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+            </button>
+
+            <div className="flex flex-col items-center text-center mt-2">
+              <div className="w-14 h-14 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-600 mb-3 shadow-sm">
+                <Printer className="w-6 h-6 stroke-[2.5]" />
+              </div>
+              
+              <h3 className="text-xl font-black text-slate-800 tracking-tight">Copia de Recibo</h3>
+              <p className="text-xs text-slate-400 font-bold uppercase tracking-wider mt-1">{selectedTicket.id}</p>
+
+              <div className="w-full bg-slate-50 border border-slate-200/60 p-4 rounded-2xl space-y-2.5 mt-5">
+                <div className="flex justify-between text-xs font-semibold text-slate-500">
+                  <span>Sucursal:</span>
+                  <span className="font-extrabold text-slate-800">{selectedTicket.branchName}</span>
+                </div>
+                <div className="flex justify-between text-xs font-semibold text-slate-500">
+                  <span>Cajero:</span>
+                  <span className="font-extrabold text-slate-800">{selectedTicket.cashier}</span>
+                </div>
+                <div className="flex justify-between text-xs font-semibold text-slate-500">
+                  <span>Fecha:</span>
+                  <span className="font-extrabold text-slate-800">{selectedTicket.date}</span>
+                </div>
+                <div className="flex justify-between text-xs font-semibold text-slate-500">
+                  <span>Método de Pago:</span>
+                  <span className="font-extrabold text-slate-800">{selectedTicket.paymentMethod}</span>
+                </div>
+                {selectedTicket.itemsCount !== undefined && (
+                  <div className="flex justify-between text-xs font-semibold text-slate-500">
+                    <span>Artículos Vendidos:</span>
+                    <span className="font-extrabold text-slate-800">{selectedTicket.itemsCount} uds</span>
+                  </div>
+                )}
+                {selectedTicket.earnedPoints !== undefined && (
+                  <div className="flex justify-between text-xs font-semibold text-indigo-500 mt-1">
+                    <span>Puntos Acumulados:</span>
+                    <span className="font-extrabold text-indigo-600">+{selectedTicket.earnedPoints} pts</span>
+                  </div>
+                )}
+                <div className="pt-2.5 border-t border-slate-200 flex justify-between text-sm font-extrabold text-slate-800 mt-2.5">
+                  <span>Monto Total Cobrado:</span>
+                  <span className="text-base font-black text-slate-800">C${selectedTicket.total.toFixed(2)}</span>
+                </div>
+              </div>
+
+              <div className="w-full mt-6">
+                <button
+                  onClick={() => {
+                    alert('Imprimiendo copia de recibo...');
+                  }}
+                  className="w-full py-3 px-4 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 font-extrabold text-xs rounded-xl shadow-sm flex items-center justify-center gap-2 transition-all active:scale-[0.98] cursor-pointer"
+                >
+                  <Printer className="w-4 h-4 text-slate-500" />
+                  Reimprimir Ticket
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

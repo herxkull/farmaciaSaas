@@ -21,6 +21,7 @@ import type { SettingUser } from '../../../stores/branchStore';
 import { useTransactionStore } from '../../../stores/transactionStore';
 import { useCustomerStore } from '../../../stores/customerStore';
 import { useShiftStore } from '../../../stores/shiftStore';
+import { useInventoryStore } from '../../../stores/inventoryStore';
 
 export default function AuthView() {
   const navigate = useNavigate();
@@ -125,6 +126,13 @@ export default function AuthView() {
       
       // Limpiar los clientes mock de prueba
       useCustomerStore.getState().clearCustomers();
+      
+      // Limpiar el inventario mock de prueba
+      useInventoryStore.getState().clearInventory();
+      
+      // Limpiar las sucursales mock
+      useBranchStore.getState().setAvailableBranches([]);
+      useBranchStore.getState().setActiveBranch(null);
       
       // Asegurarnos que la caja (turno) nazca cerrada
       useShiftStore.getState().closeShift();

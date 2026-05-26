@@ -17,6 +17,18 @@ export default function InventoryScreen() {
   const initializeBranch = useInventoryStore((state) => state.initializeBranch);
   const currentInventory = inventory[activeBranchId] || [];
 
+  const globalProducts = React.useMemo(() => {
+    const productsMap = new Map();
+    Object.values(inventory).forEach(branchInv => {
+      branchInv.forEach(p => {
+        if (!productsMap.has(p.id)) {
+          productsMap.set(p.id, p);
+        }
+      });
+    });
+    return Array.from(productsMap.values());
+  }, [inventory]);
+
   React.useEffect(() => {
     if (!inventory[activeBranchId]) {
       initializeBranch(activeBranchId);
@@ -316,7 +328,7 @@ export default function InventoryScreen() {
                   className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm font-semibold text-slate-700 focus:ring-2 focus:ring-indigo-500 outline-none"
                 >
                   <option value="">Selecciona un producto...</option>
-                  {currentInventory.map(p => (
+                  {globalProducts.map(p => (
                     <option key={p.id} value={p.id}>{p.name} ({p.sku})</option>
                   ))}
                 </select>

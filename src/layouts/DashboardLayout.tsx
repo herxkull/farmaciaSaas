@@ -22,6 +22,7 @@ import { useBranchStore } from '../stores/branchStore';
 import CashAuditModal from '../components/pos/CashAuditModal';
 import CommandPalette from '../components/navigation/CommandPalette';
 import { useShiftStore } from '../stores/shiftStore';
+import { useInventoryStore } from '../stores/inventoryStore';
 
 export default function DashboardLayout() {
   const location = useLocation();
@@ -94,11 +95,56 @@ export default function DashboardLayout() {
     }
   };
 
-  const [notifications, setNotifications] = useState([
-    { id: 1, title: 'Lote Expirado Detectado', desc: 'El lote L-2023 de Aspirina requiere retiro inmediato.', type: 'danger', time: 'Hace 5 mins', unread: true },
-    { id: 2, title: 'Solicitud de Traslado', desc: 'Sucursal Norte solicita 20 uds de Amoxicilina.', type: 'info', time: 'Hace 1 hr', unread: true },
-    { id: 3, title: 'Diferencia de Arqueo', desc: 'Se detectó faltante de -C$50 NIO en Turno Matutino.', type: 'warning', time: 'Hace 3 hrs', unread: true },
-  ]);
+  const [notifications, setNotifications] = useState<{id: number, title: string, desc: string, type: string, time: string, unread: boolean}[]>([]);
+
+  const inventory = useInventoryStore(state => state.inventory);
+
+  useEffect(() => {
+    if (!activeBranch) return;
+    const branchInventory = inventory[activeBranch.id] || [];
+    const limitDate = new Date();
+    limitDate.setMonth(limitDate.getMonth() + 3);
+
+    const newAlerts: any[] = [];
+    branchInventory.forEach((product, idx) => {
+      if (product.stockTotal === 0) {
+        newAlerts.push({
+          id: parseInt(`100${idx}`),
+          title: product.name,
+          desc: 'Stock crítico debajo del mínimo (0 uds)',
+          type: 'danger',
+          time: 'Ahora',
+          unread: true
+        });
+      } else if (product.stockTotal < 15) {
+        newAlerts.push({
+          id: parseInt(`200${idx}`),
+          title: product.name,
+          desc: `Existencias bajas en anaquel (${product.stockTotal} uds)`,
+          type: 'warning',
+          time: 'Ahora',
+          unread: true
+        });
+      }
+
+      product.batches.forEach((batch, bidx) => {
+        const expDate = new Date(batch.expirationDate);
+        if (expDate < limitDate) {
+          const days = Math.floor((expDate.getTime() - new Date().getTime()) / (1000 * 3600 * 24));
+          newAlerts.push({
+            id: parseInt(`300${idx}${bidx}`),
+            title: product.name,
+            desc: `Lote ${batch.batchNumber} expira en ${days >= 0 ? days : 0} días`,
+            type: days < 30 ? 'danger' : 'warning',
+            time: 'Ahora',
+            unread: true
+          });
+        }
+      });
+    });
+
+    setNotifications(newAlerts);
+  }, [inventory, activeBranch]);
 
   const unreadCount = notifications.filter(n => n.unread).length;
 

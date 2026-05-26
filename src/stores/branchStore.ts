@@ -199,73 +199,7 @@ const DEFAULT_BRANCHES: BranchInfo[] = [
   }
 ];
 
-const DEFAULT_USERS: SettingUser[] = [
-  {
-    id: 'u-admin',
-    name: 'Hersan Hernandez',
-    email: 'admin@zefiropharmacy.com',
-    role: 'OWNER',
-    roleLabel: 'Propietario',
-    branch: 'Todas (Corporativo)',
-    status: 'active',
-    lastAccess: 'Ahora mismo',
-    color: 'indigo',
-    password: 'admin',
-    permissions: { processSale: true, applyDiscount: true, voidInvoice: true, adjustStock: true, purchaseOrder: true }
-  },
-  {
-    id: 'u-cajero',
-    name: 'Elena Rostova',
-    email: 'cajero@zefiropharmacy.com',
-    role: 'CASHIER',
-    roleLabel: 'Cajero',
-    branch: 'Sucursal Norte',
-    status: 'active',
-    lastAccess: 'Hace 5 mins',
-    color: 'slate',
-    password: 'cajero',
-    permissions: { processSale: true, applyDiscount: false, voidInvoice: false, adjustStock: false, purchaseOrder: false }
-  },
-  { 
-    id: 'u-1', 
-    name: 'Juan Pérez', 
-    email: 'jperez@zefiro.com', 
-    role: 'CASHIER', 
-    roleLabel: 'Cajero', 
-    branch: 'Sucursal Norte', 
-    status: 'active', 
-    lastAccess: 'Hace 5 mins', 
-    color: 'slate',
-    password: 'cajero_zefiro',
-    permissions: { processSale: true, applyDiscount: false, voidInvoice: false, adjustStock: false, purchaseOrder: false }
-  },
-  { 
-    id: 'u-2', 
-    name: 'Elena Rostova', 
-    email: 'erostova@zefiro.com', 
-    role: 'BRANCH_MANAGER', 
-    roleLabel: 'Gerente Sucursal', 
-    branch: 'Sucursal Centro', 
-    status: 'active', 
-    lastAccess: 'Hoy, 09:15 AM', 
-    color: 'indigo',
-    password: 'gerente_zefiro',
-    permissions: { processSale: true, applyDiscount: true, voidInvoice: true, adjustStock: true, purchaseOrder: false }
-  },
-  { 
-    id: 'u-3', 
-    name: 'Dr. Marcus Aurelius', 
-    email: 'maurelius@zefiro.com', 
-    role: 'PHARMACIST', 
-    roleLabel: 'Químico Regente', 
-    branch: 'Todas (Corporativo)', 
-    status: 'suspended', 
-    lastAccess: 'Ayer, 18:40', 
-    color: 'emerald',
-    password: 'regente_zefiro',
-    permissions: { processSale: true, applyDiscount: true, voidInvoice: true, adjustStock: true, purchaseOrder: true }
-  }
-];
+const DEFAULT_USERS: SettingUser[] = [];
 
 /**
  * Branch Store (Zustand + Persist)

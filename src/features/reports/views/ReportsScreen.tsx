@@ -40,7 +40,7 @@ export default function ReportsScreen() {
 
   // ESTADOS DE FILTRADO BI
   const [selectedBranch, setSelectedBranch] = useState<string>('all');
-  const [selectedDateRange, setSelectedDateRange] = useState<string>('all');
+  const [selectedDateRange, setSelectedDateRange] = useState<string>('');
   const [selectedCashier, setSelectedCashier] = useState<string>('all');
   const [selectedPayment, setSelectedPayment] = useState<string>('all');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
@@ -55,6 +55,15 @@ export default function ReportsScreen() {
   // ESTADO DEL TICKET (VER COPIA)
   const [selectedTicket, setSelectedTicket] = useState<Transaction | null>(null);
 
+  // COMPUTAR CAJEROS ÚNICOS
+  const uniqueCashiers = useMemo(() => {
+    const cashiersSet = new Set<string>();
+    transactions.forEach(t => {
+      if (t.cashier) cashiersSet.add(t.cashier);
+    });
+    return Array.from(cashiersSet).sort();
+  }, [transactions]);
+
   // FILTRADO DINÁMICO REACTIVO DE VENTAS
   const filteredTransactions = useMemo(() => {
     return transactions.filter(t => {
@@ -66,15 +75,13 @@ export default function ReportsScreen() {
       if (selectedPayment !== 'all' && t.paymentMethod !== selectedPayment) return false;
       // Filtrar Categoría
       if (selectedCategory !== 'all' && t.category !== selectedCategory) return false;
-      // Rango de fechas (Simulado)
-      if (selectedDateRange === 'today') {
-        return t.date.includes('2026-05-18');
-      } else if (selectedDateRange === 'week') {
-        return t.date.includes('2026-05-17') || t.date.includes('2026-05-18');
+      // Rango de fechas (Real)
+      if (selectedDateRange) {
+        if (!t.date.startsWith(selectedDateRange)) return false;
       }
       return true;
     });
-  }, [selectedBranch, selectedDateRange, selectedCashier, selectedPayment, selectedCategory]);
+  }, [selectedBranch, selectedDateRange, selectedCashier, selectedPayment, selectedCategory, transactions]);
 
   // MÉTRICAS DE CONTEXTO REACTIVAS (BI MICRO-DASHBOARD)
   const metrics = useMemo(() => {
@@ -89,25 +96,45 @@ export default function ReportsScreen() {
     };
   }, [filteredTransactions]);
 
-  const handleScheduleSubmit = async (e: React.FormEvent) => {
+  const handleScheduleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!scheduleEmail) return;
     setIsScheduling(true);
-
-    try {
-      // Simular registro de cron job y suscripción de e-mail corporativo
-      await new Promise(resolve => setTimeout(resolve, 1000));
+    setTimeout(() => {
+      setIsScheduling(false);
       setScheduleSuccess(true);
       setTimeout(() => {
         setShowScheduleModal(false);
         setScheduleSuccess(false);
-        setScheduleEmail('');
-      }, 1500);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setIsScheduling(false);
-    }
+      }, 2000);
+    }, 1500);
+  };
+
+  const exportToCSV = (filename: string, rows: string[][]) => {
+    const csvContent = "data:text/csv;charset=utf-8,\uFEFF" 
+      + rows.map(e => e.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(",")).join("\n");
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", filename);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const handleExportFiscal = () => {
+    const headers = ['ID Transacción', 'Fecha', 'Sucursal', 'Cajero', 'Método', 'Categoría', 'Total'];
+    const rows = filteredTransactions.map(tx => [
+      tx.id, tx.date, tx.branchId, tx.cashier, tx.paymentMethod, tx.category, tx.total.toFixed(2)
+    ]);
+    exportToCSV(`Cierre_Fiscal_${new Date().toISOString().split('T')[0]}.csv`, [headers, ...rows]);
+  };
+
+  const handleExportInventory = () => {
+    const headers = ['Producto', 'Principio Activo', 'SKU', 'Stock Total', 'Controlado'];
+    const rows = branchInventory.map(item => [
+      item.name, item.activeIngredient, item.sku, item.stockTotal.toString(), item.isControlled ? 'SI' : 'NO'
+    ]);
+    exportToCSV(`Inventario_${new Date().toISOString().split('T')[0]}.csv`, [headers, ...rows]);
   };
 
   return (
@@ -205,18 +232,14 @@ export default function ReportsScreen() {
 
                 {/* 2. RANGO DE FECHAS */}
                 <div>
-                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wide mb-1.5">Rango de Fecha</label>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wide mb-1.5">Fecha Específica</label>
                   <div className="relative">
-                    <Calendar className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                    <select 
+                    <input 
+                      type="date"
                       value={selectedDateRange}
                       onChange={(e) => setSelectedDateRange(e.target.value)}
-                      className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-3 py-2 text-xs font-bold outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
-                    >
-                      <option value="all">Todos los registros</option>
-                      <option value="today">Hoy (Simulado)</option>
-                      <option value="week">Últimos 7 Días</option>
-                    </select>
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
+                    />
                   </div>
                 </div>
 
@@ -229,9 +252,9 @@ export default function ReportsScreen() {
                     className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
                   >
                     <option value="all">Todos los Cajeros</option>
-                    <option value="Hernández, Hersan">Hernández, Hersan</option>
-                    <option value="Pérez, Ana">Pérez, Ana</option>
-                    <option value="Gómez, Carlos">Gómez, Carlos</option>
+                    {uniqueCashiers.map(c => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
                   </select>
                 </div>
 
@@ -439,14 +462,14 @@ export default function ReportsScreen() {
               <span className="text-[10px] font-bold text-slate-400">Última Gen: Hace 5 mins</span>
               <div className="flex items-center gap-2">
                 <button 
-                  onClick={() => alert('Exportando Cierre Fiscal a Excel...')}
+                  onClick={handleExportFiscal}
                   className="p-2 bg-slate-50 hover:bg-slate-100 text-slate-500 rounded-lg border border-slate-200 cursor-pointer" 
                   title="Excel"
                 >
                   <FileSpreadsheet className="w-4 h-4" />
                 </button>
                 <button 
-                  onClick={() => alert('Imprimiendo Cierre Fiscal en formato de auditoría...')}
+                  onClick={() => window.print()}
                   className="p-2 bg-slate-50 hover:bg-slate-100 text-slate-500 rounded-lg border border-slate-200 cursor-pointer" 
                   title="Imprimir"
                 >
@@ -473,7 +496,7 @@ export default function ReportsScreen() {
               <span className="text-[10px] font-bold text-slate-400">Última Gen: Hoy, 8:00 AM</span>
               <div className="flex items-center gap-2">
                 <button 
-                  onClick={() => alert('Imprimiendo Libro Oficial de Medicamentos Controlados...')}
+                  onClick={() => window.print()}
                   className="px-3.5 py-2 bg-slate-50 hover:bg-slate-100 text-slate-600 border border-slate-200 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer"
                 >
                   <Printer className="w-3.5 h-3.5" /> Imprimir Libro de Actas
@@ -510,14 +533,14 @@ export default function ReportsScreen() {
               <span className="text-[10px] font-bold text-slate-400">Sincronizado ahora</span>
               <div className="flex items-center gap-2">
                 <button 
-                  onClick={() => alert('Exportando Reporte de Valoración de Inventario a Excel...')}
+                  onClick={handleExportInventory}
                   className="p-2 bg-slate-50 hover:bg-slate-100 text-slate-500 rounded-lg border border-slate-200 cursor-pointer" 
                   title="Excel"
                 >
                   <FileSpreadsheet className="w-4 h-4" />
                 </button>
                 <button 
-                  onClick={() => alert('Imprimiendo Reporte de Valoración de Inventario...')}
+                  onClick={() => window.print()}
                   className="p-2 bg-slate-50 hover:bg-slate-100 text-slate-500 rounded-lg border border-slate-200 cursor-pointer" 
                   title="Imprimir"
                 >
@@ -622,70 +645,68 @@ export default function ReportsScreen() {
         </div>
       )}
 
-      {/* MODAL DE TICKET DE VENTA */}
+      {/* MODAL DE TICKET DE VENTA (TICKET TÉRMICO) */}
       {selectedTicket && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="w-full max-w-md bg-white border border-slate-200 rounded-3xl shadow-2xl p-6 animate-in zoom-in duration-200 relative">
+          <div className="w-full max-w-[340px] bg-[#f9f9f9] border-t-8 border-slate-800 rounded-b-md shadow-2xl p-6 relative font-mono text-sm text-slate-800 animate-in slide-in-from-bottom-4 duration-300">
+            <div className="absolute -top-3 left-1/2 -translate-x-1/2 w-4/5 h-2 bg-black/5 blur-sm rounded-full"></div>
             
             <button 
               onClick={() => setSelectedTicket(null)}
-              className="absolute top-4 right-4 p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-full transition-colors"
+              className="absolute -top-12 right-0 p-2 text-white hover:bg-white/10 rounded-full transition-colors"
             >
-              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
             </button>
 
             <div className="flex flex-col items-center text-center mt-2">
-              <div className="w-14 h-14 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-600 mb-3 shadow-sm">
-                <Printer className="w-6 h-6 stroke-[2.5]" />
+              <div className="w-12 h-12 rounded-full border-2 border-slate-800 flex items-center justify-center mb-4">
+                <Printer className="w-6 h-6 text-slate-800" />
               </div>
               
-              <h3 className="text-xl font-black text-slate-800 tracking-tight">Copia de Recibo</h3>
-              <p className="text-xs text-slate-400 font-bold uppercase tracking-wider mt-1">{selectedTicket.id}</p>
+              <h3 className="font-bold text-lg uppercase tracking-widest mb-1">Copia de Recibo</h3>
+              <p className="text-xs text-slate-500 uppercase">{selectedTicket.branchName}</p>
+              <p className="text-[10px] text-slate-500 mt-1">Ticket: {selectedTicket.id}</p>
+              <p className="text-[10px] text-slate-500">{selectedTicket.date}</p>
+              
+              <div className="w-full border-t border-dashed border-slate-400 my-4"></div>
 
-              <div className="w-full bg-slate-50 border border-slate-200/60 p-4 rounded-2xl space-y-2.5 mt-5">
-                <div className="flex justify-between text-xs font-semibold text-slate-500">
-                  <span>Sucursal:</span>
-                  <span className="font-extrabold text-slate-800">{selectedTicket.branchName}</span>
-                </div>
-                <div className="flex justify-between text-xs font-semibold text-slate-500">
+              <div className="w-full space-y-1.5 text-xs">
+                <div className="flex justify-between text-slate-600">
                   <span>Cajero:</span>
-                  <span className="font-extrabold text-slate-800">{selectedTicket.cashier}</span>
+                  <span>{selectedTicket.cashier}</span>
                 </div>
-                <div className="flex justify-between text-xs font-semibold text-slate-500">
-                  <span>Fecha:</span>
-                  <span className="font-extrabold text-slate-800">{selectedTicket.date}</span>
+                <div className="flex justify-between text-slate-600">
+                  <span>Artículos:</span>
+                  <span>{selectedTicket.itemsCount} uds</span>
                 </div>
-                <div className="flex justify-between text-xs font-semibold text-slate-500">
-                  <span>Método de Pago:</span>
-                  <span className="font-extrabold text-slate-800">{selectedTicket.paymentMethod}</span>
-                </div>
-                {selectedTicket.itemsCount !== undefined && (
-                  <div className="flex justify-between text-xs font-semibold text-slate-500">
-                    <span>Artículos Vendidos:</span>
-                    <span className="font-extrabold text-slate-800">{selectedTicket.itemsCount} uds</span>
-                  </div>
-                )}
                 {selectedTicket.earnedPoints !== undefined && (
-                  <div className="flex justify-between text-xs font-semibold text-indigo-500 mt-1">
-                    <span>Puntos Acumulados:</span>
-                    <span className="font-extrabold text-indigo-600">+{selectedTicket.earnedPoints} pts</span>
+                  <div className="flex justify-between text-slate-600">
+                    <span>Puntos Ganados:</span>
+                    <span className="font-bold">+{selectedTicket.earnedPoints}</span>
                   </div>
                 )}
-                <div className="pt-2.5 border-t border-slate-200 flex justify-between text-sm font-extrabold text-slate-800 mt-2.5">
-                  <span>Monto Total Cobrado:</span>
-                  <span className="text-base font-black text-slate-800">C${selectedTicket.total.toFixed(2)}</span>
+                <div className="flex justify-between text-slate-600">
+                  <span>Pago con:</span>
+                  <span>{selectedTicket.paymentMethod}</span>
+                </div>
+                
+                <div className="flex justify-between text-lg font-black uppercase mt-3 pt-3 border-t border-slate-800">
+                  <span>Total:</span>
+                  <span>C${selectedTicket.total.toFixed(2)}</span>
                 </div>
               </div>
 
-              <div className="w-full mt-6">
+              <div className="w-full border-t border-dashed border-slate-400 my-4"></div>
+
+              <div className="w-full font-sans">
                 <button
                   onClick={() => {
-                    alert('Imprimiendo copia de recibo...');
+                    alert('Imprimiendo copia de recibo térmico...');
                   }}
-                  className="w-full py-3 px-4 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 font-extrabold text-xs rounded-xl shadow-sm flex items-center justify-center gap-2 transition-all active:scale-[0.98] cursor-pointer"
+                  className="w-full py-2.5 px-4 bg-white border border-slate-300 hover:bg-slate-100 text-slate-700 font-bold text-xs rounded-lg shadow-sm flex items-center justify-center gap-2 transition-colors cursor-pointer"
                 >
                   <Printer className="w-4 h-4 text-slate-500" />
-                  Reimprimir Ticket
+                  Reimprimir
                 </button>
               </div>
             </div>

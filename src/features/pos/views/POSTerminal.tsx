@@ -20,6 +20,7 @@ import { useBranchStore } from '../../../stores/branchStore';
 import { useInventoryStore } from '../../../stores/inventoryStore';
 import { useShiftStore } from '../../../stores/shiftStore';
 import { useFocusLock } from '../../../hooks/useFocusLock';
+import { useCustomerStore } from '../../../stores/customerStore';
 import type { Customer } from '../../../stores/customerStore';
 import { CustomerSelectorModal } from '../components/CustomerSelectorModal';
 import { useTransactionStore } from '../../../stores/transactionStore';
@@ -146,9 +147,9 @@ export default function POSTerminal() {
       const sessionUser = useBranchStore.getState().user;
       const category = cart[0]?.product.category || 'Varios';
       
-      const earnedPoints = Math.floor(totalPaid * 0.05); // 5% en puntos
+      const earnedPoints = selectedCustomer ? Math.floor(totalPaid * 0.05) : undefined; // 5% en puntos solo si hay cliente
       
-      useTransactionStore.getState().addTransaction({
+      const newTransaction = {
         branchId: activeBranchId,
         branchName: activeBranch?.name || 'Sucursal Desconocida',
         cashier: sessionUser?.name || 'Cajero Desconocido',
@@ -157,7 +158,27 @@ export default function POSTerminal() {
         category: category,
         earnedPoints: earnedPoints,
         itemsCount: count
-      });
+      };
+
+      useTransactionStore.getState().addTransaction(newTransaction);
+
+      // Si hay cliente asociado, actualizar su perfil
+      if (selectedCustomer) {
+        useCustomerStore.getState().updateCustomer(selectedCustomer.id, {
+          points: selectedCustomer.points + (earnedPoints || 0),
+          ltv: selectedCustomer.ltv + totalPaid,
+          lastVisit: new Date().toLocaleString(),
+          purchases: [
+            ...(selectedCustomer.purchases || []),
+            {
+              id: 'TX-' + Math.floor(100000 + Math.random() * 900000),
+              date: new Date().toLocaleString(),
+              amount: totalPaid,
+              pointsEarned: earnedPoints || 0
+            }
+          ]
+        });
+      }
 
       setLastTransaction({
         id: 'TX-' + Math.floor(100000 + Math.random() * 900000),
@@ -168,8 +189,7 @@ export default function POSTerminal() {
       });
       
       setShowSuccessModal(true);
-      setCart([]); // Limpiar carrito tras el éxito
-      setSelectedCustomer(null);
+      // No limpiar el carrito ni el cliente hasta cerrar el modal, para mostrar datos reales en el ticket
     } catch (error) {
       console.error('Error al procesar la venta:', error);
     } finally {
@@ -527,57 +547,94 @@ export default function POSTerminal() {
         onSelectCustomer={setSelectedCustomer}
       />
 
-      {/* MODAL DE ÉXITO DE TRANSACCIÓN */}
+      {/* MODAL DE ÉXITO DE TRANSACCIÓN (TICKET TÉRMICO) */}
       {showSuccessModal && lastTransaction && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="w-full max-w-md bg-white border border-slate-200 rounded-3xl shadow-2xl p-6 animate-in zoom-in duration-200">
+          <div className="w-full max-w-[340px] bg-[#f9f9f9] border-t-8 border-slate-800 rounded-b-md shadow-2xl p-6 relative font-mono text-sm text-slate-800 animate-in slide-in-from-bottom-4 duration-300">
+            <div className="absolute -top-3 left-1/2 -translate-x-1/2 w-4/5 h-2 bg-black/5 blur-sm rounded-full"></div>
+            
             <div className="flex flex-col items-center text-center">
-              <div className="w-16 h-16 rounded-full bg-emerald-50 border border-emerald-100 flex items-center justify-center text-emerald-600 mb-4 shadow-sm animate-bounce">
-                <CheckCircle2 className="w-8 h-8 stroke-[2.5]" />
+              <div className="w-12 h-12 rounded-full border-2 border-slate-800 flex items-center justify-center mb-4">
+                <CheckCircle2 className="w-6 h-6 text-slate-800" />
               </div>
               
-              <h3 className="text-xl font-black text-slate-800 tracking-tight">¡Cobro Completado con Éxito!</h3>
-              <p className="text-xs text-slate-400 font-bold uppercase tracking-wider mt-1">{lastTransaction.id}</p>
+              <h3 className="font-bold text-lg uppercase tracking-widest mb-1">Zefiro POS</h3>
+              <p className="text-xs text-slate-500 uppercase">{activeBranch?.name || 'Sucursal Centro'}</p>
+              <p className="text-[10px] text-slate-500 mt-1">Ticket: {lastTransaction.id}</p>
+              <p className="text-[10px] text-slate-500">{new Date().toLocaleString()}</p>
+              
+              <div className="w-full border-t border-dashed border-slate-400 my-4"></div>
 
-              <div className="w-full bg-slate-50 border border-slate-200/60 p-4 rounded-2xl space-y-2.5 mt-5">
-                <div className="flex justify-between text-xs font-semibold text-slate-500">
-                  <span>Método de Pago:</span>
-                  <span className="font-extrabold text-slate-800">{lastTransaction.paymentMethod}</span>
+              <div className="w-full space-y-2 text-xs">
+                {cart.map((item, i) => (
+                  <div key={i} className="flex justify-between items-start text-left">
+                    <div className="pr-2 leading-tight">
+                      <span className="font-bold block">{item.quantity}x {item.product.name}</span>
+                      <span className="text-[10px] text-slate-500">Lote: {item.batch.batchNumber}</span>
+                    </div>
+                    <span className="font-bold shrink-0">C${(item.product.salePrice * item.quantity).toFixed(2)}</span>
+                  </div>
+                ))}
+              </div>
+
+              <div className="w-full border-t border-dashed border-slate-400 my-4"></div>
+
+              <div className="w-full space-y-1.5 text-xs">
+                <div className="flex justify-between text-slate-600">
+                  <span>Subtotal:</span>
+                  <span>C${financialSummary.subtotal.toFixed(2)}</span>
                 </div>
-                <div className="flex justify-between text-xs font-semibold text-slate-500">
-                  <span>Artículos Vendidos:</span>
-                  <span className="font-extrabold text-slate-800">{lastTransaction.itemsCount} uds</span>
+                <div className="flex justify-between text-slate-600">
+                  <span>IVA:</span>
+                  <span>C${financialSummary.taxes.toFixed(2)}</span>
                 </div>
                 {lastTransaction.earnedPoints !== undefined && (
-                  <div className="flex justify-between text-xs font-semibold text-indigo-500 mt-1">
-                    <span>Puntos Acumulados:</span>
-                    <span className="font-extrabold text-indigo-600">+{lastTransaction.earnedPoints} pts</span>
+                  <div className="flex justify-between text-slate-600">
+                    <span>Puntos Ganados:</span>
+                    <span className="font-bold">+{lastTransaction.earnedPoints}</span>
                   </div>
                 )}
-                <div className="pt-2.5 border-t border-slate-200 flex justify-between text-sm font-extrabold text-slate-800 mt-2.5">
-                  <span>Monto Total Cobrado:</span>
-                  <span className="text-base font-black text-emerald-600">C${lastTransaction.total.toFixed(2)}</span>
+                {selectedCustomer && (
+                  <div className="flex justify-between text-slate-600">
+                    <span>Cliente:</span>
+                    <span className="truncate max-w-[150px]">{selectedCustomer.name}</span>
+                  </div>
+                )}
+                <div className="flex justify-between text-slate-600">
+                  <span>Pago con:</span>
+                  <span>{lastTransaction.paymentMethod.includes('Efectivo') ? 'Efectivo' : 'Tarjeta'}</span>
+                </div>
+                
+                <div className="flex justify-between text-lg font-black uppercase mt-3 pt-3 border-t border-slate-800">
+                  <span>Total:</span>
+                  <span>C${lastTransaction.total.toFixed(2)}</span>
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3 w-full mt-6">
+              <div className="w-full border-t border-dashed border-slate-400 my-4"></div>
+              
+              <p className="text-[10px] text-center font-bold uppercase mb-6">*** GRACIAS POR SU COMPRA ***</p>
+
+              <div className="grid grid-cols-2 gap-3 w-full font-sans">
                 <button
                   onClick={() => {
-                    alert('Imprimiendo recibo clínico corporativo...');
+                    alert('Imprimiendo recibo térmico...');
                   }}
-                  className="py-3 px-4 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 font-extrabold text-xs rounded-xl shadow-sm flex items-center justify-center gap-2 transition-all active:scale-[0.98] cursor-pointer"
+                  className="py-2.5 px-4 bg-white border border-slate-300 hover:bg-slate-100 text-slate-700 font-bold text-xs rounded-lg shadow-sm flex items-center justify-center gap-2 transition-colors cursor-pointer"
                 >
                   <Printer className="w-4 h-4 text-slate-500" />
-                  Imprimir Ticket
+                  Imprimir
                 </button>
                 
                 <button
                   onClick={() => {
                     setShowSuccessModal(false);
                     setLastTransaction(null);
+                    setCart([]); // Limpiar ahora
+                    setSelectedCustomer(null);
                     setTimeout(() => searchInputRef.current?.focus(), 50);
                   }}
-                  className="py-3 px-4 bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-xs rounded-xl shadow-md shadow-indigo-200 flex items-center justify-center gap-1.5 transition-all active:scale-[0.98] cursor-pointer"
+                  className="py-2.5 px-4 bg-slate-800 hover:bg-slate-900 text-white font-bold text-xs rounded-lg flex items-center justify-center transition-colors cursor-pointer"
                 >
                   Nueva Venta
                 </button>

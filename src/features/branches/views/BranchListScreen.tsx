@@ -24,18 +24,19 @@ import {
 import { cn } from '../../../lib/utils';
 import { useBranchStore, type BranchInfo } from '../../../stores/branchStore';
 import { useInventoryStore } from '../../../stores/inventoryStore';
+import { useTransactionStore } from '../../../stores/transactionStore';
 
 export default function BranchListScreen() {
   const navigate = useNavigate();
   const { availableBranches, addBranch, switchBranchById } = useBranchStore();
-  const initializeBranchInventory = useInventoryStore((state) => state.initializeBranch);
+  const inventory = useInventoryStore((state) => state.inventory);
+  const transactions = useTransactionStore((state) => state.transactions);
 
   const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid');
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   
-  // MAPA TÁCTICO INTERACTIVO
-  const [isMapOpen, setIsMapOpen] = useState(true);
+  // MAPA TÁCTICO INTERACTIVO (Removido por solicitud del usuario)
   const [selectedPinBranch, setSelectedPinBranch] = useState<BranchInfo | null>(null);
 
   // ACCIONES RÁPIDAS: DROPDOWNS
@@ -64,9 +65,38 @@ export default function BranchListScreen() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // FILTRADO DINÁMICO MULTI-CRITERIO
+  // FILTRADO DINÁMICO MULTI-CRITERIO Y CÁLCULO EN TIEMPO REAL
   const filteredBranches = useMemo(() => {
-    return availableBranches.filter(b => {
+    return availableBranches.map(b => {
+      // Calcular Ventas Reales
+      const branchTxs = transactions.filter(t => t.branchId === b.id);
+      const branchSales = branchTxs.reduce((sum, t) => sum + t.total, 0);
+      
+      // Calcular Abasto y Estado FEFO
+      const branchInv = inventory[b.id] || [];
+      let healthStatus = b.healthStatus || 'optimal';
+      let coverage = b.coverage || '100%';
+      
+      if (branchInv.length > 0) {
+        const lowStockCount = branchInv.filter(p => p.stockTotal <= 20).length;
+        const coveragePercent = Math.max(0, 100 - Math.round((lowStockCount / branchInv.length) * 100));
+        coverage = `${coveragePercent}%`;
+        
+        if (coveragePercent < 80) healthStatus = 'critical';
+        else if (coveragePercent < 95) healthStatus = 'warning';
+        else healthStatus = 'optimal';
+      } else {
+        coverage = '0%';
+        healthStatus = 'critical';
+      }
+
+      return {
+        ...b,
+        sales: `C$${branchSales.toFixed(2)}`,
+        healthStatus,
+        coverage
+      };
+    }).filter(b => {
       // Filtrar por término de búsqueda (nombre, código, gerente o ciudad)
       const term = searchQuery.toLowerCase().trim();
       const managerName = b.manager || '';
@@ -79,7 +109,7 @@ export default function BranchListScreen() {
 
       // Filtrar por estado de abasto (healthStatus)
       let matchesStatus = true;
-      const status = b.healthStatus || 'optimal';
+      const status = b.healthStatus;
       const connectivity = b.connectivity || 'online';
 
       if (statusFilter === 'critical') {
@@ -94,7 +124,7 @@ export default function BranchListScreen() {
 
       return matchesSearch && matchesStatus;
     });
-  }, [availableBranches, searchQuery, statusFilter]);
+  }, [availableBranches, searchQuery, statusFilter, transactions, inventory]);
 
   const handleActionClick = (actionName: string, branchName: string) => {
     const branch = availableBranches.find(b => b.name === branchName);
@@ -264,140 +294,10 @@ export default function BranchListScreen() {
             <option value="offline">Cajas Offline (Sin Red)</option>
           </select>
 
-          <button
-            onClick={() => setIsMapOpen(!isMapOpen)}
-            className={cn(
-              "px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer border",
-              isMapOpen 
-                ? "bg-slate-100 border-slate-200 text-slate-700" 
-                : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50 shadow-sm"
-            )}
-          >
-            <Map className="w-3.5 h-3.5 text-indigo-500" />
-            <span>{isMapOpen ? 'Ocultar Geomapa' : 'Ver Mapa Operativo'}</span>
-          </button>
         </div>
       </div>
 
-      {/* ======================================================== */}
-      {/* 3. WIDGET: GEOMAPA DE OPERACIONES INTERACTIVO (Abstracto) */}
-      {/* ======================================================== */}
-      {isMapOpen && (
-        <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 relative overflow-hidden shadow-lg animate-in zoom-in duration-300">
-          <div className="absolute top-4 left-4 z-10">
-            <h3 className="text-xs font-black uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
-              <Globe className="w-4 h-4 text-indigo-400 animate-spin-slow" />
-              Geomapa Operativo Zefiro
-            </h3>
-            <p className="text-[10px] text-slate-500 font-semibold mt-0.5">Control de cobertura y contingencias en tiempo real.</p>
-          </div>
 
-          <div className="absolute top-4 right-4 z-10 flex gap-2 text-[9px] font-black uppercase text-slate-400 bg-slate-950/80 px-3 py-2 rounded-xl border border-slate-800 backdrop-blur-md">
-            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-500"></span> Óptimo</span>
-            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-500"></span> Moderado</span>
-            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-rose-500"></span> Crítico</span>
-          </div>
-
-          {/* Canvas de Mapa Abstracto (Rejilla de visualización) */}
-          <div className="h-64 relative bg-slate-950 rounded-2xl border border-slate-800/80 flex items-center justify-center overflow-hidden">
-            
-            {/* Fondo de mapa táctico con líneas radiales y cuadrículas */}
-            <div className="absolute inset-0 bg-[radial-gradient(#1e1e38_1px,transparent_1px)] [background-size:16px_16px] opacity-40"></div>
-            
-            {/* Pines dinámicos */}
-            {filteredBranches.map((branch) => {
-              const isSelected = selectedPinBranch?.id === branch.id;
-              const status = branch.healthStatus || 'optimal';
-              const coords = branch.coordinates || { x: 50, y: 50 };
-              
-              return (
-                <button
-                  key={branch.id}
-                  onClick={() => setSelectedPinBranch(branch)}
-                  className="absolute p-2 cursor-pointer transition-all duration-200 transform hover:scale-125 focus:outline-none group z-20"
-                  style={{ left: `${coords.x}%`, top: `${coords.y}%` }}
-                >
-                  {/* Círculos de estatus pulsantes */}
-                  <span className={cn(
-                    "absolute -left-1 -top-1 w-6 h-6 rounded-full opacity-35 animate-ping",
-                    status === 'optimal' && "bg-emerald-400",
-                    status === 'warning' && "bg-amber-400",
-                    status === 'critical' && "bg-rose-500"
-                  )}></span>
-                  
-                  {/* Pin Central */}
-                  <span className={cn(
-                    "relative block w-4 h-4 rounded-full border-2 border-slate-950 shadow-md transition-all duration-300",
-                    status === 'optimal' && "bg-emerald-500",
-                    status === 'warning' && "bg-amber-500",
-                    status === 'critical' && "bg-rose-500",
-                    isSelected && "ring-4 ring-indigo-500 scale-110"
-                  )}></span>
-
-                  {/* Tooltip Hover del Mapa */}
-                  <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover:block bg-slate-950 border border-slate-800 text-[10px] text-white px-2 py-1 rounded-md font-bold whitespace-nowrap shadow-xl z-30">
-                    {branch.name} ({branch.coverage || '100%'})
-                  </span>
-                </button>
-              );
-            })}
-
-            {/* Panel de Auditoría Flotante al Seleccionar Pin */}
-            {selectedPinBranch ? (
-              <div className="absolute bottom-4 left-4 right-4 md:left-auto md:right-4 z-30 w-auto md:w-80 bg-slate-950 border border-slate-800 p-4 rounded-2xl shadow-2xl backdrop-blur-md flex flex-col justify-between animate-in slide-in-from-bottom-2 duration-300">
-                <div className="flex justify-between items-start">
-                  <div>
-                    <span className="text-[9px] font-black uppercase text-indigo-400 bg-indigo-950/60 px-2 py-0.5 border border-indigo-900 rounded">
-                      {selectedPinBranch.code}
-                    </span>
-                    <h4 className="font-extrabold text-white text-sm mt-1">{selectedPinBranch.name}</h4>
-                    <p className="text-[10px] text-slate-500 font-semibold">{selectedPinBranch.city || 'CDMX'} • {selectedPinBranch.address || 'Farmacia'}</p>
-                  </div>
-                  <button 
-                    onClick={() => setSelectedPinBranch(null)}
-                    className="text-slate-500 hover:text-slate-300 cursor-pointer"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                </div>
-
-                <div className="grid grid-cols-2 gap-3 mt-4 pt-3 border-t border-slate-900 text-[10px] font-bold">
-                  <div className="text-slate-500">
-                    Abasto Local: <span className={cn(
-                      (selectedPinBranch.healthStatus || 'optimal') === 'optimal' && "text-emerald-400",
-                      selectedPinBranch.healthStatus === 'warning' && "text-amber-400",
-                      selectedPinBranch.healthStatus === 'critical' && "text-rose-500"
-                    )}>{selectedPinBranch.coverage || '100%'}</span>
-                  </div>
-                  <div className="text-slate-500">
-                    Estado Red: <span className={(selectedPinBranch.connectivity || 'online') === 'online' ? "text-emerald-400" : "text-rose-500"}>
-                      {selectedPinBranch.connectivity === 'online' ? 'Online' : 'Offline'}
-                    </span>
-                  </div>
-                </div>
-
-                <button
-                  onClick={() => {
-                    alert(`Ingresando a auditar y calibrar el inventario de la ${selectedPinBranch.name}`);
-                    setSelectedPinBranch(null);
-                  }}
-                  className="w-full mt-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-[10px] font-black text-center transition-all cursor-pointer"
-                >
-                  Ingresar a Panel Interno
-                </button>
-              </div>
-            ) : (
-              <div className="absolute bottom-4 left-1/2 -translate-x-1/2 text-[10px] font-bold text-slate-600 bg-slate-950/60 border border-slate-900 px-3 py-1.5 rounded-full backdrop-blur-sm flex items-center gap-1.5 select-none pointer-events-none">
-                <Info className="w-3.5 h-3.5" />
-                <span>Haz clic en un pin para auditar el nodo</span>
-              </div>
-            )}
-
-          </div>
-        </div>
-      )}
-
-      {/* ======================================================== */}
       {/* 4. VISUALIZACIÓN DINÁMICA DE ELEMENTOS (GRID VS TABLE)   */}
       {/* ======================================================== */}
       {filteredBranches.length === 0 ? (

@@ -22,6 +22,7 @@ import { useBranchStore } from '../../../stores/branchStore';
 import { useInventoryStore } from '../../../stores/inventoryStore';
 import { useTransactionStore } from '../../../stores/transactionStore';
 import { useCustomerStore } from '../../../stores/customerStore';
+import { useShiftStore } from '../../../stores/shiftStore';
 
 // Interfaces de Tipado
 interface BestSeller {
@@ -48,6 +49,9 @@ export default function DashboardScreen() {
 
   // Determinar si es una sucursal de prueba (las default son b-01 a b-05)
   const isDemoBranch = activeBranch?.id?.startsWith('b-0');
+
+  const currentShift = useShiftStore((state) => activeBranch ? state.shifts[activeBranch.id] : null);
+  const baseAmount = currentShift ? currentShift.openingCash : (isDemoBranch ? 2500 : 0);
 
   // ==========================================
   // DATOS DINÁMICOS REALES
@@ -190,10 +194,10 @@ export default function DashboardScreen() {
   const kpiNewAffiliates = totalCustomers.toString();
   const kpiInvited = totalCustomers > 0 ? `${100 - Math.round((loyalCustomers / totalCustomers) * 100)}%` : '0%';
 
-  const kpiVaultCash = `C$${(totalSales + 2500).toFixed(2)}`;
+  const kpiVaultCash = `C$${(totalSales + baseAmount).toFixed(2)}`;
 
   const kpiCashFlow = [
-    { label: 'Fondo de Apertura', val: 'C$2,500.00', type: 'base', icon: Activity },
+    { label: 'Fondo de Apertura', val: `C$${baseAmount.toFixed(2)}`, type: 'base', icon: Activity },
     { label: 'Ingresos por Ventas', val: `+C$${totalSales.toFixed(2)}`, type: 'in', icon: PlusCircle },
     { label: 'Retiro parcial / Egresos', val: '-C$0.00', type: 'out', icon: MinusCircle }
   ];
@@ -240,6 +244,36 @@ export default function DashboardScreen() {
         </div>
         
         <div className="flex items-center gap-3 shrink-0 self-start md:self-auto">
+          <button 
+            onClick={() => {
+              if (!activeBranch) return;
+              const dummyCustomers = [
+                { name: 'Juan Perez', email: 'juan@example.com', phone: '555-123-4567', loyaltyTier: 'Plata' as const, points: 150 },
+                { name: 'Maria Gomez', email: 'maria@example.com', phone: '555-987-6543', loyaltyTier: 'Oro' as const, points: 500 },
+                { name: 'Carlos Slim', email: 'carlos@example.com', phone: '555-111-2222', loyaltyTier: 'VIP' as const, points: 2000 }
+              ];
+              const dummyProducts = [
+                {
+                  id: `p-${Date.now()}-1`, name: 'Paracetamol 500mg', activeIngredient: 'Paracetamol', barcode: '123456789', sku: 'PRC-500', 
+                  salePrice: 45.50, taxRate: 0, stockTotal: 100, isControlled: false, category: 'Analgésicos', batches: [{id: 'b-1', batchNumber: 'L-101', expirationDate: '2028-12-31', quantity: 100}]
+                },
+                {
+                  id: `p-${Date.now()}-2`, name: 'Amoxicilina 500mg', activeIngredient: 'Amoxicilina', barcode: '987654321', sku: 'AMX-500', 
+                  salePrice: 120.00, taxRate: 0, stockTotal: 50, isControlled: true, category: 'Antibióticos', batches: [{id: 'b-2', batchNumber: 'L-102', expirationDate: '2027-06-30', quantity: 50}]
+                },
+                {
+                  id: `p-${Date.now()}-3`, name: 'Ibuprofeno 400mg', activeIngredient: 'Ibuprofeno', barcode: '456123789', sku: 'IBU-400', 
+                  salePrice: 65.00, taxRate: 0, stockTotal: 200, isControlled: false, category: 'Analgésicos', batches: [{id: 'b-3', batchNumber: 'L-103', expirationDate: '2029-01-15', quantity: 200}]
+                }
+              ];
+              dummyCustomers.forEach(c => useCustomerStore.getState().addCustomer(c));
+              dummyProducts.forEach(p => useInventoryStore.getState().addProduct(activeBranch.id, p as any));
+              alert('Datos inyectados exitosamente.');
+            }}
+            className="px-3 py-2 bg-indigo-50 border border-indigo-100 text-indigo-600 rounded-xl text-xs font-bold hover:bg-indigo-100 shadow-sm flex items-center gap-2 transition-all active:scale-95"
+          >
+            <Activity className="w-3.5 h-3.5" /> Inyectar Datos
+          </button>
           <button className="px-3 py-2 bg-white border border-slate-200 text-slate-600 rounded-xl text-xs font-bold hover:bg-slate-50 shadow-sm flex items-center gap-2 transition-all active:scale-95">
             <Download className="w-3.5 h-3.5" /> Exportar Dashboard
           </button>

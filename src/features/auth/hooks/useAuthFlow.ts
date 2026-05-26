@@ -2,7 +2,8 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useBranchStore } from '../../../stores/branchStore';
 import { useAuthRouting } from './useAuthRouting';
-import type { AuthUser, BranchInfo, UserRole } from '../../../stores/branchStore';
+import type { AuthUser, BranchInfo, UserRole, SettingUser } from '../../../stores/branchStore';
+import { supabase } from '../../../lib/supabase';
 
 export type AuthStep = 'credentials' | 'branch_select';
 
@@ -42,19 +43,40 @@ export function useAuthFlow() {
         return;
       }
 
-      // 2. CONDICIONAL A: Búsqueda dinámica en el store de usuarios (RBAC)
-      const matchedUser = users.find(u => u.email.toLowerCase() === email.trim().toLowerCase());
+      // Llamada Real a Supabase para verificar credenciales
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password
+      });
       
-      if (!matchedUser) {
-        throw new Error('Usuario no registrado o credenciales inválidas.');
+      if (error) {
+        throw new Error('Credenciales inválidas o correo no verificado.');
       }
 
-      // Detalle Premium: Soportar la clave prellenada de la demo
-      const isDummyPrefilled = password === '••••••••';
-      const isPasswordMatch = isDummyPrefilled || matchedUser.password === password;
-
-      if (!isPasswordMatch) {
-        throw new Error('Contraseña incorrecta.');
+      // 2. Búsqueda dinámica en el store de usuarios (RBAC Mock)
+      let matchedUser = users.find(u => u.email.toLowerCase() === email.trim().toLowerCase());
+      
+      if (!matchedUser) {
+        // El usuario existe y verificó su correo en Supabase, pero es nuevo en el almacenamiento local.
+        // Lo inyectamos como Propietario (OWNER).
+        const newUser: SettingUser = {
+           id: data.user?.id || `u-${Date.now()}`,
+           name: data.user?.user_metadata?.full_name || email.split('@')[0],
+           email: email.trim(),
+           role: 'OWNER',
+           roleLabel: 'Propietario',
+           branch: 'Todas (Corporativo)',
+           status: 'active',
+           lastAccess: 'Ahora mismo',
+           color: 'indigo',
+           password: password,
+           permissions: { processSale: true, applyDiscount: true, voidInvoice: true, adjustStock: true, purchaseOrder: true }
+        };
+        
+        const currentUsers = useBranchStore.getState().users || [];
+        useBranchStore.getState().setUsers([...currentUsers, newUser]);
+        
+        matchedUser = newUser;
       }
 
       if (matchedUser.status === 'suspended') {
@@ -77,7 +99,13 @@ export function useAuthFlow() {
       const nextStep = handleLoginRedirect(mockUser);
 
       if (nextStep === 'branch_select') {
-        // Si es administrador, guardar tempUser para el selector y cambiar de vista
+        // Si es administrador y no hay sucursales, enviarlo al Onboarding
+        if (availableBranches.length === 0) {
+          navigate('/setup');
+          return;
+        }
+        
+        // Si es administrador y SÍ hay sucursales, guardar tempUser para el selector y cambiar de vista
         setTempUser(mockUser);
         setStep('branch_select');
       }

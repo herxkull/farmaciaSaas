@@ -90,7 +90,7 @@ const DEFAULT_BRANCHES: BranchInfo[] = [
     config: {
       allowManualDiscount: true,
       requirePrescriptionCapture: true,
-      taxPercentage: 15,
+      taxPercentage: 0,
       currency: 'NIO',
     },
     city: 'Managua',
@@ -113,7 +113,7 @@ const DEFAULT_BRANCHES: BranchInfo[] = [
     config: {
       allowManualDiscount: false,
       requirePrescriptionCapture: true,
-      taxPercentage: 15,
+      taxPercentage: 0,
       currency: 'NIO',
     },
     city: 'León',
@@ -135,7 +135,7 @@ const DEFAULT_BRANCHES: BranchInfo[] = [
     config: {
       allowManualDiscount: true,
       requirePrescriptionCapture: false,
-      taxPercentage: 15,
+      taxPercentage: 0,
       currency: 'NIO',
     },
     city: 'Granada',
@@ -159,7 +159,7 @@ const DEFAULT_BRANCHES: BranchInfo[] = [
     config: {
       allowManualDiscount: true,
       requirePrescriptionCapture: true,
-      taxPercentage: 15,
+      taxPercentage: 0,
       currency: 'NIO',
     },
     city: 'Estelí',
@@ -182,7 +182,7 @@ const DEFAULT_BRANCHES: BranchInfo[] = [
     config: {
       allowManualDiscount: true,
       requirePrescriptionCapture: true,
-      taxPercentage: 15,
+      taxPercentage: 0,
       currency: 'NIO',
     },
     city: 'Managua',

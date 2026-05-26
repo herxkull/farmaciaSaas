@@ -22,6 +22,7 @@ import { useTransactionStore } from '../../../stores/transactionStore';
 import { useCustomerStore } from '../../../stores/customerStore';
 import { useShiftStore } from '../../../stores/shiftStore';
 import { useInventoryStore } from '../../../stores/inventoryStore';
+import { supabase } from '../../../lib/supabase';
 
 export default function AuthView() {
   const navigate = useNavigate();
@@ -49,10 +50,11 @@ export default function AuthView() {
   const [isRegisterLoading, setIsRegisterLoading] = useState(false);
   const [registerError, setRegisterError] = useState<string | null>(null);
   const [isGmailWarning, setIsGmailWarning] = useState(false);
+  const [isVerificationSent, setIsVerificationSent] = useState(false);
 
   // --- ESTADOS DE LOGIN (COMPATIBILIDAD CON useAuthFlow) ---
-  const [loginEmail, setLoginEmail] = useState('admin@zefiropharmacy.com');
-  const [loginPassword, setLoginPassword] = useState('••••••••');
+  const [loginEmail, setLoginEmail] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
 
   // Validación de dominio de correo corporativo en tiempo real
   useEffect(() => {
@@ -96,58 +98,34 @@ export default function AuthView() {
       return;
     }
 
-    setIsRegisterLoading(true);
-
     try {
-      // Simular latencia de creación de tenant en la base de datos SaaS
-      await new Promise((resolve) => setTimeout(resolve, 1500));
-
-      console.info('[Zefiro Growth Engine] New Tenant Registered successfully.');
-      console.info(`[SaaS Security] Created base user: ${fullName} (${email}) with role PENDING_TENANT.`);
-
-      const newUser: SettingUser = {
-        id: `u-${Date.now()}`,
-        name: fullName,
+      // 1. Llamada Real a Supabase para Registro
+      const { data, error } = await supabase.auth.signUp({
         email: email.trim(),
-        role: 'OWNER',
-        roleLabel: 'Propietario',
-        branch: 'Todas (Corporativo)',
-        status: 'active',
-        lastAccess: 'Ahora mismo',
-        color: 'indigo',
         password: password,
-        permissions: { processSale: true, applyDiscount: true, voidInvoice: true, adjustStock: true, purchaseOrder: true }
-      };
-
-      setUsers([newUser]);
-      
-      // Limpiar las transacciones mock de prueba
-      useTransactionStore.getState().clearTransactions();
-      
-      // Limpiar los clientes mock de prueba
-      useCustomerStore.getState().clearCustomers();
-      
-      // Limpiar el inventario mock de prueba
-      useInventoryStore.getState().clearInventory();
-      
-      // Limpiar las sucursales mock
-      useBranchStore.getState().setAvailableBranches([]);
-      useBranchStore.getState().setActiveBranch(null);
-      
-      // Asegurarnos que la caja (turno) nazca cerrada
-      useShiftStore.getState().closeShift();
-
-      login({
-        id: newUser.id,
-        name: newUser.name,
-        role: 'OWNER',
-        tenantId: `t-${Date.now()}`,
+        options: {
+          data: {
+            full_name: fullName
+          }
+        }
       });
 
-      // Redireccionar programáticamente al Onboarding Wizard (/setup)
-      navigate('/setup');
-    } catch (err) {
-      setRegisterError('Hubo un problema al crear tu cuenta. Intenta de nuevo.');
+      if (error) {
+        throw new Error(error.message);
+      }
+
+      // Si Supabase devuelve un usuario pero no tiene identidades nuevas, significa que ya estaba registrado.
+      if (data.user && data.user.identities && data.user.identities.length === 0) {
+         throw new Error('Este correo ya se encuentra registrado.');
+      }
+
+      // Si todo sale bien, Supabase envía el correo automáticamente.
+      setIsVerificationSent(true);
+
+      // (Demo) Guardamos al usuario localmente para que el RBAC de la demo funcione después de verificar
+      console.info('[Zefiro Growth Engine] New Tenant Registered via Supabase.');
+    } catch (err: any) {
+      setRegisterError(err.message || 'Hubo un problema al registrar la cuenta. Intenta de nuevo.');
     } finally {
       setIsRegisterLoading(false);
     }
@@ -280,22 +258,41 @@ export default function AuthView() {
                     </button>
                   </p>
                 </div>
-
-                {/* MOCK ACCOUNTS LEGEND */}
-                <div className="mt-8 pt-5 border-t border-slate-100/80 text-left">
-                  <p className="text-[9px] font-black text-slate-400 uppercase tracking-wider text-center mb-2.5">
-                    Panel de Simulación RBAC & Demo
-                  </p>
-                  <div className="space-y-1.5 bg-slate-50 border border-slate-100 p-3 rounded-2xl text-[11px] font-semibold text-slate-500 shadow-inner-sm">
-                    <div className="flex justify-between">
-                      <span>👑 Admin Corporativo:</span>
-                      <span className="font-extrabold text-indigo-600">admin@zefiropharmacy.com</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span>💊 Cajero Operativo:</span>
-                      <span className="font-extrabold text-indigo-600">cajero@zefiropharmacy.com</span>
-                    </div>
+              </div>
+            ) : isVerificationSent ? (
+              /* ==================================================== */
+              /* VISTA A-1.5: PANTALLA DE VERIFICACIÓN               */
+              /* ==================================================== */
+              <div className="animate-in fade-in slide-in-from-right-4 duration-300">
+                <div className="text-center mb-8">
+                  <div className="mx-auto bg-emerald-100 text-emerald-600 w-16 h-16 flex items-center justify-center rounded-full mb-4">
+                    <Mail className="w-8 h-8" />
                   </div>
+                  <h1 className="text-3xl font-black tracking-tight text-slate-900">Verifica tu correo</h1>
+                  <p className="mt-2 text-sm font-medium text-slate-500">
+                    Hemos enviado un enlace de confirmación a <br/>
+                    <span className="font-bold text-slate-900">{email}</span>
+                  </p>
+                </div>
+                <button
+                  onClick={() => {
+                    setIsVerificationSent(false);
+                    setIsLoginMode(true);
+                  }}
+                  className="group w-full flex justify-center items-center py-4 px-4 border border-transparent rounded-2xl text-sm font-extrabold text-white bg-indigo-600 hover:bg-indigo-700 shadow-lg shadow-indigo-200 active:scale-[0.98] transition-all duration-150 cursor-pointer"
+                >
+                  Volver al inicio de sesión
+                </button>
+                <div className="mt-8 pt-6 border-t border-slate-100 text-center">
+                  <p className="text-xs font-semibold text-slate-500">
+                    ¿No recibiste el correo?{' '}
+                    <button 
+                      onClick={() => setIsVerificationSent(false)}
+                      className="font-extrabold text-indigo-600 hover:text-indigo-500 cursor-pointer hover:underline underline-offset-2 transition-all"
+                    >
+                      Intentar de nuevo
+                    </button>
+                  </p>
                 </div>
               </div>
             ) : (
@@ -488,65 +485,39 @@ export default function AuthView() {
         <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-indigo-850 via-slate-950 to-slate-950 z-0 opacity-90 transition-all"></div>
         <div className="absolute top-[-20%] left-[-10%] w-[600px] h-[600px] bg-indigo-600/10 rounded-full blur-3xl"></div>
         
-        {isLoginMode ? (
-          /* ==================================================== */
-          /* COPY DE LOGIN: ENFOQUE EN VELOCIDAD Y PRECISIÓN      */
-          /* ==================================================== */
-          <div className="relative z-10 max-w-lg px-12 text-center text-white animate-in fade-in duration-300">
-            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-indigo-300 text-xs font-extrabold tracking-wide uppercase mb-8 backdrop-blur-sm">
-              🚀 Zefiro Ecosistema v4.0
-            </div>
-            
-            <h2 className="text-4xl font-extrabold tracking-tight text-white leading-[1.1]">
-              Administra tu cadena de farmacias sin fricción clínica
-            </h2>
-            <p className="mt-6 text-lg text-indigo-100/80 font-medium leading-relaxed">
-              SaaS integrado con trazabilidad FEFO avanzada, gestión multi-sucursal integrada y control automático de medicamentos regulados en tiempo real.
-            </p>
+        <div className="relative z-10 max-w-lg px-12 text-center text-white animate-in fade-in duration-300">
+          <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-indigo-300 text-xs font-extrabold tracking-wide uppercase mb-8 backdrop-blur-sm">
+            {isLoginMode ? '🚀 Zefiro Ecosistema v4.0' : '✨ Acceso Gratuito Inmediato'}
+          </div>
+          
+          <h1 className="text-4xl font-extrabold tracking-tight text-white leading-[1.1] transition-all">
+            {isLoginMode 
+              ? "Bienvenido de nuevo a Zefiro." 
+              : "El sistema operativo de las farmacias líderes."}
+          </h1>
+          <p className="mt-6 text-lg text-indigo-100/80 font-medium leading-relaxed transition-all">
+            {isLoginMode 
+              ? "Accede a tu centro de control corporativo. Monitorea sucursales, audita inventarios y gestiona el rendimiento de tu equipo en tiempo real." 
+              : "Evita pérdidas por caducidad, controla el inventario de todas tus sucursales en tiempo real y acelera el paso por caja con un POS de nivel corporativo."}
+          </p>
 
-            <div className="mt-12 grid grid-cols-2 gap-4">
-              <div className="bg-white/5 border border-white/10 backdrop-blur-md p-5 rounded-2xl text-left">
-                <span className="block text-xl font-black text-white">99.9%</span>
-                <span className="text-xs font-bold text-indigo-200/70 uppercase tracking-wider mt-1 block">Precisión de Lote</span>
-              </div>
-              <div className="bg-white/5 border border-white/10 backdrop-blur-md p-5 rounded-2xl text-left">
-                <span className="block text-xl font-black text-white">{"< 1.2s"}</span>
-                <span className="text-xs font-bold text-indigo-200/70 uppercase tracking-wider mt-1 block">Velocidad Checkout</span>
-              </div>
+          <div className="mt-12 grid grid-cols-2 gap-4">
+            <div className="bg-white/5 border border-white/10 backdrop-blur-md p-5 rounded-2xl text-left">
+              <span className="block text-xl font-black text-white">99.9%</span>
+              <span className="text-xs font-bold text-indigo-200/70 uppercase tracking-wider mt-1 block">Precisión de Lote</span>
+            </div>
+            <div className="bg-white/5 border border-white/10 backdrop-blur-md p-5 rounded-2xl text-left">
+              <span className="block text-xl font-black text-white">{"< 1.2s"}</span>
+              <span className="text-xs font-bold text-indigo-200/70 uppercase tracking-wider mt-1 block">Velocidad Checkout</span>
             </div>
           </div>
-        ) : (
-          /* ==================================================== */
-          /* COPY DE SIGN UP: VALOR DE ADQUISICIÓN / PRUEBA       */
-          /* ==================================================== */
-          <div className="relative z-10 max-w-lg px-12 text-center text-white animate-in fade-in duration-300">
-            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 text-xs font-extrabold tracking-wide uppercase mb-8 backdrop-blur-sm">
-              ✨ Acceso Gratuito Inmediato
-            </div>
-            
-            <h2 className="text-4xl font-extrabold tracking-tight text-white leading-[1.1]">
-              Únete a la nueva era de la gestión farmacéutica
-            </h2>
-            <p className="mt-6 text-lg text-emerald-100/80 font-medium leading-relaxed">
-              Configura tu primera sucursal en menos de 5 minutos y obtén 14 días de prueba con trazabilidad FEFO total y soporte premium 24/7.
-            </p>
 
-            <div className="mt-12 grid grid-cols-2 gap-4">
-              <div className="bg-white/5 border border-white/10 backdrop-blur-md p-5 rounded-2xl text-left">
-                <span className="block text-xl font-black text-white">14 Días</span>
-                <span className="text-xs font-bold text-indigo-200/70 uppercase tracking-wider mt-1 block">Prueba Total Gratis</span>
-              </div>
-              <div className="bg-white/5 border border-white/10 backdrop-blur-md p-5 rounded-2xl text-left">
-                <span className="block text-xl font-black text-white">{"< 5 Min"}</span>
-                <span className="text-xs font-bold text-indigo-200/70 uppercase tracking-wider mt-1 block">Configuración Inicial</span>
-              </div>
-            </div>
-
-            <div className="mt-8 flex items-center justify-center gap-2 text-[11px] font-bold text-indigo-200/60">
+          {!isLoginMode && (
+            <div className="mt-8 flex items-center justify-center gap-2 text-[11px] font-bold text-indigo-200/60 animate-in fade-in">
               <Check className="w-4 h-4 text-emerald-400 shrink-0" /> No se requiere tarjeta de crédito • Cancela cuando quieras
             </div>
-          </div>
-        )}
+          )}
+        </div>
 
         <div className="absolute bottom-0 left-0 right-0 h-64 bg-gradient-to-t from-slate-950 to-transparent opacity-50"></div>
       </section>

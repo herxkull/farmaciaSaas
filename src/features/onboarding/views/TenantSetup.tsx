@@ -32,8 +32,8 @@ export default function TenantSetup() {
         config: {
           allowManualDiscount: true,
           requirePrescriptionCapture: true,
-          taxPercentage: 15,
-          currency: 'MXN', // Or whatever default
+          taxPercentage: 0,
+          currency: 'NIO',
         },
         city: 'Ciudad',
         address: address || 'Dirección',

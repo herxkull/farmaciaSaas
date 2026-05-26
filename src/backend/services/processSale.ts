@@ -50,7 +50,13 @@ export async function processSale(payload: CheckoutPayload) {
         // 3. Transformar los fragmentos FEFO en líneas formales de venta
         for (const batchSplit of consumedBatches) {
           const lineSubtotal = batchSplit.quantity * item.unitPrice;
-          const lineTax = lineSubtotal * (item.taxRate / 100);
+          
+          // Anulación del impuesto si la sucursal es exenta (tasa 0%)
+          const branchRecord = await tx.branch.findUnique({ where: { id: payload.branchId } });
+          const branchTaxOverride = branchRecord?.taxPercentage === 0 ? 0 : 1;
+          const effectiveTaxRate = (item.taxRate / 100) * branchTaxOverride;
+          
+          const lineTax = lineSubtotal * effectiveTaxRate;
           
           subtotalTotal += lineSubtotal;
           taxesTotal += lineTax;

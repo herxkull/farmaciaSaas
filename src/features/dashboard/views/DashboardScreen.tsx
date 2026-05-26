@@ -23,6 +23,7 @@ import { useInventoryStore } from '../../../stores/inventoryStore';
 import { useTransactionStore } from '../../../stores/transactionStore';
 import { useCustomerStore } from '../../../stores/customerStore';
 import { useShiftStore } from '../../../stores/shiftStore';
+import { CashMovementModal } from '../components/CashMovementModal';
 
 // Interfaces de Tipado
 interface BestSeller {
@@ -41,11 +42,13 @@ export default function DashboardScreen() {
   // ESTADOS REACTIVOS INTERACTIVOS
   // ==========================================
   const [chartType, setChartType] = useState<'line' | 'bar'>('line');
+  const [timeRange, setTimeRange] = useState<'hoy' | 'mes'>('hoy');
   const [sortKey, setSortKey] = useState<'sales' | 'margin'>('sales');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   const [activeAlertFilter, setActiveAlertFilter] = useState<'all' | 'stock' | 'expiry'>('all');
   const [processedAlerts, setProcessedAlerts] = useState<number[]>([]);
   const [hoveredDay, setHoveredDay] = useState<number | null>(null);
+  const [isMovementModalOpen, setIsMovementModalOpen] = useState(false);
 
   // Determinar si es una sucursal de prueba (las default son b-01 a b-05)
   const isDemoBranch = activeBranch?.id?.startsWith('b-0');
@@ -60,10 +63,20 @@ export default function DashboardScreen() {
   const inventory = useInventoryStore((state) => state.inventory);
   
   const branchTransactions = transactions.filter(t => t.branchId === activeBranch?.id);
+  
+  const now = new Date();
+  const dateStringToday = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  const dateStringMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  
+  const filteredBranchTransactions = branchTransactions.filter(t => {
+    if (timeRange === 'hoy') return t.date.startsWith(dateStringToday);
+    return t.date.startsWith(dateStringMonth);
+  });
+
   const branchInventory = activeBranch?.id ? (inventory[activeBranch.id] || []) : [];
 
-  const totalSales = branchTransactions.reduce((acc, t) => acc + t.total, 0);
-  const avgTicket = branchTransactions.length > 0 ? totalSales / branchTransactions.length : 0;
+  const totalSales = filteredBranchTransactions.reduce((acc, t) => acc + t.total, 0);
+  const avgTicket = filteredBranchTransactions.length > 0 ? totalSales / filteredBranchTransactions.length : 0;
 
   const kpiSales = `C$${totalSales.toFixed(2)}`;
   const kpiTicket = `C$${avgTicket.toFixed(2)}`;
@@ -231,8 +244,16 @@ export default function DashboardScreen() {
 
   const maxVal = Math.max(1000, ...weeklySales.map(d => Math.max(d.actual, d.projected)));
 
+  const handleRegisterMovement = () => {
+    if (!currentShift) {
+      alert("Debes abrir caja primero.");
+      return;
+    }
+    setIsMovementModalOpen(true);
+  };
+
   return (
-    <div className="p-6 xl:p-8 space-y-6 xl:space-y-8 animate-in fade-in duration-300 bg-slate-50">
+    <div className="flex-1 overflow-y-auto p-4 md:p-8 bg-slate-50 font-sans antialiased text-slate-900 pb-24">
       
       {/* ==========================================
           ENCABEZADO GERENCIAL
@@ -244,42 +265,15 @@ export default function DashboardScreen() {
         </div>
         
         <div className="flex items-center gap-3 shrink-0 self-start md:self-auto">
-          <button 
-            onClick={() => {
-              if (!activeBranch) return;
-              const dummyCustomers = [
-                { name: 'Juan Perez', email: 'juan@example.com', phone: '555-123-4567', loyaltyTier: 'Plata' as const, points: 150 },
-                { name: 'Maria Gomez', email: 'maria@example.com', phone: '555-987-6543', loyaltyTier: 'Oro' as const, points: 500 },
-                { name: 'Carlos Slim', email: 'carlos@example.com', phone: '555-111-2222', loyaltyTier: 'VIP' as const, points: 2000 }
-              ];
-              const dummyProducts = [
-                {
-                  id: `p-${Date.now()}-1`, name: 'Paracetamol 500mg', activeIngredient: 'Paracetamol', barcode: '123456789', sku: 'PRC-500', 
-                  salePrice: 45.50, taxRate: 0, stockTotal: 100, isControlled: false, category: 'Analgésicos', batches: [{id: 'b-1', batchNumber: 'L-101', expirationDate: '2028-12-31', quantity: 100}]
-                },
-                {
-                  id: `p-${Date.now()}-2`, name: 'Amoxicilina 500mg', activeIngredient: 'Amoxicilina', barcode: '987654321', sku: 'AMX-500', 
-                  salePrice: 120.00, taxRate: 0, stockTotal: 50, isControlled: true, category: 'Antibióticos', batches: [{id: 'b-2', batchNumber: 'L-102', expirationDate: '2027-06-30', quantity: 50}]
-                },
-                {
-                  id: `p-${Date.now()}-3`, name: 'Ibuprofeno 400mg', activeIngredient: 'Ibuprofeno', barcode: '456123789', sku: 'IBU-400', 
-                  salePrice: 65.00, taxRate: 0, stockTotal: 200, isControlled: false, category: 'Analgésicos', batches: [{id: 'b-3', batchNumber: 'L-103', expirationDate: '2029-01-15', quantity: 200}]
-                }
-              ];
-              dummyCustomers.forEach(c => useCustomerStore.getState().addCustomer(c));
-              dummyProducts.forEach(p => useInventoryStore.getState().addProduct(activeBranch.id, p as any));
-              alert('Datos inyectados exitosamente.');
-            }}
-            className="px-3 py-2 bg-indigo-50 border border-indigo-100 text-indigo-600 rounded-xl text-xs font-bold hover:bg-indigo-100 shadow-sm flex items-center gap-2 transition-all active:scale-95"
-          >
-            <Activity className="w-3.5 h-3.5" /> Inyectar Datos
-          </button>
-          <button className="px-3 py-2 bg-white border border-slate-200 text-slate-600 rounded-xl text-xs font-bold hover:bg-slate-50 shadow-sm flex items-center gap-2 transition-all active:scale-95">
-            <Download className="w-3.5 h-3.5" /> Exportar Dashboard
-          </button>
           <div className="bg-white p-1 rounded-xl border border-slate-200 shadow-sm flex items-center select-none">
-            <button className="px-3 py-1.5 bg-indigo-50 text-indigo-700 text-xs font-bold rounded-lg shadow-sm transition-all">Hoy</button>
-            <button className="px-3 py-1.5 text-slate-400 hover:text-slate-600 text-xs font-extrabold rounded-lg transition-all">Mes</button>
+            <button 
+              onClick={() => setTimeRange('hoy')}
+              className={cn("px-3 py-1.5 text-xs font-bold rounded-lg transition-all", timeRange === 'hoy' ? "bg-indigo-50 text-indigo-700 shadow-sm" : "text-slate-400 hover:text-slate-600 font-extrabold")}
+            >Hoy</button>
+            <button 
+              onClick={() => setTimeRange('mes')}
+              className={cn("px-3 py-1.5 text-xs font-bold rounded-lg transition-all", timeRange === 'mes' ? "bg-indigo-50 text-indigo-700 shadow-sm" : "text-slate-400 hover:text-slate-600 font-extrabold")}
+            >Mes</button>
           </div>
         </div>
       </div>
@@ -433,9 +427,6 @@ export default function DashboardScreen() {
                   className={cn("px-3 py-1.5 rounded-lg transition-all", chartType === 'bar' ? "bg-white text-slate-800 shadow-sm" : "text-slate-400 hover:text-slate-600")}
                 >Barras</button>
               </div>
-              <button className="p-2 hover:bg-slate-50 rounded-xl border border-slate-200 text-slate-500 transition-all shadow-sm" title="Descargar Excel Semanal">
-                <Download className="w-4 h-4" />
-              </button>
             </div>
           </div>
 
@@ -571,7 +562,7 @@ export default function DashboardScreen() {
               <span className="text-[9px] text-slate-400 font-medium">(Solo Cash físico, excluye tarjetas)</span>
             </div>
 
-            <button className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-2.5 rounded-xl text-xs font-extrabold flex items-center justify-center gap-2 shadow-md active:scale-[0.98] transition-all">
+            <button onClick={handleRegisterMovement} className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-2.5 rounded-xl text-xs font-extrabold flex items-center justify-center gap-2 shadow-md active:scale-[0.98] transition-all">
               <PlusCircle className="w-4 h-4" /> Registrar Retiro / Depósito
             </button>
           </div>
@@ -804,6 +795,11 @@ export default function DashboardScreen() {
         </div>
       </div>
 
+      <CashMovementModal 
+        isOpen={isMovementModalOpen} 
+        onClose={() => setIsMovementModalOpen(false)} 
+        branchId={activeBranch?.id || ''} 
+      />
     </div>
   );
 }

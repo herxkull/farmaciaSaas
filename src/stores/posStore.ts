@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { useBranchStore } from './branchStore';
 
 export interface CartProduct {
   id: string;
@@ -123,9 +124,13 @@ export const usePOSStore = create<POSState>()(
       },
 
       getTaxes: () => {
+        const activeBranch = useBranchStore.getState().activeBranch;
+        const branchTaxOverride = activeBranch?.config?.taxPercentage === 0 ? 0 : 1;
+        
         return get().cart.reduce((acc, item) => {
           const linePrice = item.product.salePrice * item.quantity;
-          return acc + (linePrice * item.product.taxRate);
+          const effectiveTaxRate = item.product.taxRate * branchTaxOverride;
+          return acc + (linePrice * effectiveTaxRate);
         }, 0);
       },
 

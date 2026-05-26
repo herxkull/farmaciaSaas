@@ -255,7 +255,12 @@ export default function POSTerminal() {
 
     cart.forEach(item => {
       const lineSubtotal = item.product.salePrice * item.quantity;
-      const lineTax = lineSubtotal * item.product.taxRate;
+      
+      // La configuración fiscal de la sucursal tiene prioridad (Ej. 0% de ley)
+      const branchTaxOverride = activeBranch?.config?.taxPercentage === 0 ? 0 : 1;
+      const effectiveTaxRate = item.product.taxRate * branchTaxOverride;
+      
+      const lineTax = lineSubtotal * effectiveTaxRate;
       
       subtotal += lineSubtotal;
       totalTaxes += lineTax;

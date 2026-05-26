@@ -74,7 +74,7 @@ export default function InventoryScreen() {
       barcode: newProduct.sku,
       sku: newProduct.sku,
       salePrice: Number(newProduct.salePrice),
-      taxRate: 0.16,
+      taxRate: 0,
       stockTotal: 0,
       isControlled: newProduct.isControlled,
       category: newProduct.category,

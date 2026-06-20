@@ -3,6 +3,7 @@
 
 generator client {
   provider = "prisma-client-js"
+  output   = "../src/generated/client"
 }
 
 datasource db {
@@ -61,7 +62,6 @@ model Tenant {
   products      Product[]
   inventoryBatches InventoryBatch[]
   customers     Customer[]
-  sales         Sale[]
   transfers     InventoryTransfer[]
 
   @@map("tenants")
@@ -85,8 +85,6 @@ model Branch {
   // Operaciones en la Sucursal
   users         User[]
   inventoryBatches InventoryBatch[]
-  sales         Sale[]
-  shifts        CashShift[]
   transfersFrom InventoryTransfer[] @relation("OriginBranch")
   transfersTo   InventoryTransfer[] @relation("DestinationBranch")
 
@@ -113,8 +111,6 @@ model User {
   updatedAt     DateTime  @updatedAt @map("updated_at")
 
   // Logs Operativos
-  sales         Sale[]
-  shifts        CashShift[]
   approvedTransfers InventoryTransfer[] @relation("ApprovedByUser")
 
   @@index([tenantId])
@@ -145,12 +141,16 @@ model Product {
   salePrice     Decimal   @map("sale_price") @db.Decimal(10, 2)
   taxRate       Decimal   @default(16.0) @map("tax_rate") @db.Decimal(5, 2) 
   
+  // VENTA FRACCIONADA
+  hasFractions  Boolean   @default(false) @map("has_fractions")
+  unitsPerBox   Int?      @map("units_per_box")
+  unitPrice     Decimal?  @map("unit_price") @db.Decimal(10, 2)
+
   createdAt     DateTime  @default(now()) @map("created_at")
   updatedAt     DateTime  @updatedAt @map("updated_at")
 
   // Relaciones
   inventoryBatches InventoryBatch[]
-  saleItems     SaleItem[]
 
   @@unique([tenantId, barcode])
   @@index([tenantId, activeIngredient]) // Agiliza búsquedas de genéricos alternativos
@@ -174,14 +174,13 @@ model InventoryBatch {
   expirationDate DateTime @map("expiration_date") // Fecha de caducidad estricta
   costPrice     Decimal   @map("cost_price") @db.Decimal(10, 2) // Costo unitario de adquisición
   
-  quantity      Int       // Cantidad física actual
+  quantity      Decimal   @db.Decimal(10, 4) // Cantidad física actual (Soporta fracciones)
   minStockAlert Int       @default(5) @map("min_stock_alert") // Alerta personalizada por sucursal
 
   createdAt     DateTime  @default(now()) @map("created_at")
   updatedAt     DateTime  @updatedAt @map("updated_at")
 
   // Rastreabilidad
-  saleItems     SaleItem[]
   transferItems InventoryTransferItem[]
 
   @@unique([branchId, productId, batchNumber]) // Previene colisiones de inventario
@@ -201,8 +200,21 @@ model Customer {
   email         String?
   phone         String?
   taxId         String?   @map("tax_id") 
+  taxName       String?   @map("tax_name")
+  taxRegime     String?   @map("tax_regime")
+  address       String?
+  city          String?
+  idNumber      String?   @map("id_number")
   
+  // Financiero y Estatus
+  status        String    @default("active")
+  creditLimit   Decimal   @default(0) @map("credit_limit") @db.Decimal(10, 2)
+  pendingBalance Decimal  @default(0) @map("pending_balance") @db.Decimal(10, 2)
+  ltv           Decimal   @default(0) @db.Decimal(10, 2)
+  lastVisit     String?   @map("last_visit")
+
   // Fidelización y Salud
+  loyaltyTier   String    @default("Bronce") @map("loyalty_tier")
   loyaltyPoints Int       @default(0) @map("loyalty_points") // Acumulados
   discountAgreement String? @map("discount_agreement") // Aseguradora Vinculada (Ej: AXA, Metlife)
 
@@ -218,24 +230,23 @@ model Customer {
 /// @model CashShift
 /// Control de Flujo y Turnos. Implementa el ARQUEO CIEGO para seguridad operativa.
 model CashShift {
-  id              String    @id @default(uuid())
-  tenantId        String    @map("tenant_id")
+  id              String    @id
+  tenantId        String?   @map("tenant_id")
   branchId        String    @map("branch_id")
-  branch          Branch    @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  branchName      String?   @map("branch_name")
   
-  userId          String    @map("user_id")
-  user            User      @relation(fields: [userId], references: [id])
+  /// Stored as plain text — no FK to avoid auth.users dependency from the frontend anon client
+  userId          String?   @map("user_id")
+  userName        String?   @map("user_name")
 
   openedAt        DateTime  @default(now()) @map("opened_at")
   closedAt        DateTime? @map("closed_at")
   status          ShiftStatus @default(OPEN)
 
-  openingCash     Decimal   @map("opening_cash") @db.Decimal(10, 2) // Fondo de caja inicial
-  expectedCash    Decimal   @default(0) @map("expected_cash") @db.Decimal(10, 2) // Monto calculado por sistema (Oculto al cajero)
-  actualCashCount Decimal?  @map("actual_cash_count") @db.Decimal(10, 2) // Conteo físico real ingresado al cerrar
-  difference      Decimal?  @db.Decimal(10, 2) // Desviación automática (Faltante o Sobrante)
-
-  sales           Sale[]
+  openingCash     Decimal   @map("opening_cash") @db.Decimal(10, 2)
+  expectedCash    Decimal   @default(0) @map("expected_cash") @db.Decimal(10, 2)
+  actualCashCount Decimal?  @map("actual_cash_count") @db.Decimal(10, 2)
+  difference      Decimal?  @db.Decimal(10, 2)
 
   @@index([branchId, status])
   @@map("cash_shifts")
@@ -245,17 +256,10 @@ model CashShift {
 /// Cabecera de Venta asociada a Turno y Sucursal.
 model Sale {
   id            String    @id @default(uuid())
-  tenantId      String    @map("tenant_id")
-  tenant        Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  
-  branchId      String    @map("branch_id")
-  branch        Branch    @relation(fields: [branchId], references: [id], onDelete: Cascade)
-
-  userId        String    @map("user_id") // Cajero ejecutor
-  user          User      @relation(fields: [userId], references: [id])
-
-  cashShiftId   String    @map("cash_shift_id")
-  cashShift     CashShift @relation(fields: [cashShiftId], references: [id])
+  tenantId      String?   @map("tenant_id")
+  branchId      String?   @map("branch_id")
+  userId        String?   @map("user_id")
+  cashShiftId   String?   @map("cash_shift_id")
 
   customerId    String?   @map("customer_id")
   customer      Customer? @relation(fields: [customerId], references: [id])
@@ -269,12 +273,9 @@ model Sale {
   createdAt     DateTime  @default(now()) @map("created_at")
   updatedAt     DateTime  @updatedAt @map("updated_at")
 
-  // Desgloses Relacionados
   items         SaleItem[]
-  payments      SalePayment[] // Habilita Múltiples métodos de pago (Híbrido)
+  payments      SalePayment[]
 
-  @@index([tenantId, branchId])
-  @@index([cashShiftId])
   @@map("sales")
 }
 
@@ -297,44 +298,23 @@ model SalePayment {
 /// @model SaleItem
 /// Línea de detalle. Enlaza al Lote para cumplimiento FEFO.
 model SaleItem {
-  id            String    @id @default(uuid())
+  id            String    @id
   saleId        String    @map("sale_id")
   sale          Sale      @relation(fields: [saleId], references: [id], onDelete: Cascade)
 
-  productId     String    @map("product_id")
-  product       Product   @relation(fields: [productId], references: [id])
+  productId     String?   @map("product_id")
+  batchId       String?   @map("batch_id")
 
-  batchId       String    @map("batch_id") // Lote del que se extrajeron las unidades
-  batch         InventoryBatch @relation(fields: [batchId], references: [id])
-
-  quantity      Int
+  quantity      Decimal   @db.Decimal(10, 4)
   unitPrice     Decimal   @map("unit_price") @db.Decimal(10, 2)
   taxRate       Decimal   @map("tax_rate") @db.Decimal(5, 2)
   subtotal      Decimal   @db.Decimal(10, 2)
 
-  // Auditoría Regulatoria (Medicamentos Controlados)
-  prescription  Prescription? 
-  
   @@index([saleId])
   @@map("sale_items")
 }
 
-/// @model Prescription
-/// Registro obligatorio exigido por leyes sanitarias para venta de psicotrópicos / antibióticos controlados.
-model Prescription {
-  id            String    @id @default(uuid())
-  saleItemId    String    @unique @map("sale_item_id")
-  saleItem      SaleItem  @relation(fields: [saleItemId], references: [id], onDelete: Cascade)
-
-  doctorName    String    @map("doctor_name") // Nombre del Médico Tratante
-  doctorLicense String    @map("doctor_license") // Cédula Profesional
-  prescriptionFolio String @map("prescription_folio") // Folio único del recetario
-  institution   String?   // Ej. Secretaría de Salud, Hospital Civil
-
-  capturedAt    DateTime  @default(now()) @map("captured_at")
-
-  @@map("prescriptions")
-}
+/// @model Prescription - Removed FK to SaleItem; use a separate audit flow later
 
 /// @model InventoryTransfer
 /// Cabecera de traslado logístico entre dos Sucursales físicas de la misma cadena.

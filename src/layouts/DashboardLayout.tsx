@@ -40,38 +40,8 @@ export default function DashboardLayout() {
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
 
   // ========================================================
-  // SEGURIDAD RBAC: PROTECCIÓN DE RUTAS DINÁMICA
+  // SEGURIDAD RBAC manejada en App.tsx vía ProtectedRoute
   // ========================================================
-  useEffect(() => {
-    if (!user) {
-      navigate('/login', { replace: true });
-      return;
-    }
-
-    const role = user.role;
-    const path = location.pathname;
-
-    let allowed = false;
-    if (role === 'OWNER' || role === 'SUPER_ADMIN') {
-      allowed = true;
-    } else if (role === 'BRANCH_MANAGER') {
-      allowed = path !== '/app/settings';
-    } else if (role === 'PHARMACIST') {
-      allowed = path === '/app/pos' || path === '/app/inventory' || path === '/app/customers';
-    } else if (role === 'CASHIER') {
-      allowed = path === '/app/pos' || path === '/app/customers';
-    }
-
-    if (!allowed) {
-      console.warn(`[RBAC Guard] Unauthorized attempt to access ${path} as ${role}. Redirecting.`);
-      // Redirigir a la pantalla predeterminada
-      if (role === 'CASHIER' || role === 'PHARMACIST') {
-        navigate('/app/pos', { replace: true });
-      } else {
-        navigate('/app', { replace: true });
-      }
-    }
-  }, [user, location.pathname, navigate]);
 
   // Atajo global Ctrl+K o Cmd+K para abrir/cerrar CommandPalette
   useEffect(() => {
@@ -127,7 +97,7 @@ export default function DashboardLayout() {
         });
       }
 
-      product.batches.forEach((batch, bidx) => {
+      (product.batches || []).forEach((batch, bidx) => {
         const expDate = new Date(batch.expirationDate);
         if (expDate < limitDate) {
           const days = Math.floor((expDate.getTime() - new Date().getTime()) / (1000 * 3600 * 24));

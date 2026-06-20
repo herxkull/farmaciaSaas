@@ -188,6 +188,11 @@ export default function BranchListScreen() {
 
       // 1. Agregar sucursal en el store de Sucursales
       addBranch(newBranch);
+      
+      // 2. Sincronizar con Supabase
+      import('../../../lib/supabaseAuth').then(({ syncBranchToSupabase }) => {
+        syncBranchToSupabase(newBranch).catch(console.error);
+      });
 
       setAddSuccess(true);
       setTimeout(() => {

@@ -14,6 +14,7 @@ interface FetchOptions extends RequestInit {
  */
 export function useApi() {
   const activeBranch = useBranchStore((state) => state.activeBranch);
+  const tenantId = useBranchStore((state) => state.user?.tenantId);
   const branchId = activeBranch?.id || '';
 
   const request = useCallback(
@@ -42,7 +43,7 @@ export function useApi() {
       customHeaders.set('Content-Type', 'application/json');
       if (branchId) {
         customHeaders.set('X-Branch-Id', branchId);
-        customHeaders.set('X-Tenant-Context', 't-zefiro-global'); // Integración futura
+        customHeaders.set('X-Tenant-Context', tenantId || 't-unknown'); // Integración futura
       }
 
       // Simulación conceptual del fetch real

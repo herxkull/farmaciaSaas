@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef, useEffect } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { 
   ShoppingCart, 
   UserPlus, 
@@ -21,6 +21,7 @@ import { useInventoryStore } from '../../../stores/inventoryStore';
 import { useShiftStore } from '../../../stores/shiftStore';
 import { useFocusLock } from '../../../hooks/useFocusLock';
 import { useCustomerStore } from '../../../stores/customerStore';
+import { recordSaleInSupabase } from '../../../lib/supabaseInventory';
 import type { Customer } from '../../../stores/customerStore';
 import { CustomerSelectorModal } from '../components/CustomerSelectorModal';
 import { useTransactionStore } from '../../../stores/transactionStore';
@@ -37,6 +38,9 @@ interface Product {
   taxRate: number;
   stockTotal: number;
   category: string;
+  hasFractions?: boolean;
+  unitsPerBox?: number;
+  unitPrice?: number;
 }
 
 interface Batch {
@@ -51,6 +55,7 @@ interface CartItem {
   product: Product;
   batch: Batch;
   quantity: number;
+  sellingMode: 'box' | 'unit';
 }
 
 // Customer type imported from customerStore
@@ -84,21 +89,31 @@ export default function POSTerminal() {
   const activeBranchId = activeBranch?.id || 'b-01';
 
   const currentShift = useShiftStore((state) => state.shifts[activeBranchId]);
+  const fetchActiveShift = useShiftStore((state) => state.fetchActiveShift);
   const isShiftOpen = !!currentShift;
+  const { inventory, deductStock, fetchInventory } = useInventoryStore();
 
-  const { inventory, deductStock } = useInventoryStore();
+  React.useEffect(() => {
+    if (activeBranchId) {
+      fetchActiveShift(activeBranchId);
+      fetchInventory(activeBranchId, activeBranch?.name);
+    }
+  }, [activeBranchId, fetchActiveShift, fetchInventory, activeBranch?.name]);
 
   // Mapear los productos de la sucursal activa reactivamente
   const activeBranchProducts = useMemo(() => {
     const products = inventory[activeBranchId] || [];
-    return products.map(p => ({
-      id: p.id,
-      name: p.name,
-      barcode: p.barcode,
-      salePrice: p.salePrice,
-      taxRate: p.taxRate,
-      stockTotal: p.stockTotal,
-      category: p.category
+    return products.map((p, idx) => ({
+      id: p.id || `p-missing-${idx}`,
+      name: p.name || 'Sin nombre',
+      barcode: p.barcode || '',
+      salePrice: p.salePrice || 0,
+      taxRate: p.taxRate || 0,
+      stockTotal: p.stockTotal || 0,
+      category: p.category || 'General',
+      hasFractions: p.hasFractions,
+      unitsPerBox: p.unitsPerBox,
+      unitPrice: p.unitPrice
     }));
   }, [inventory, activeBranchId]);
 
@@ -108,7 +123,7 @@ export default function POSTerminal() {
     const batchesMap: Record<string, Batch[]> = {};
     
     products.forEach(p => {
-      batchesMap[p.id] = p.batches.map(b => ({
+      batchesMap[p.id] = (p.batches || []).map(b => ({
         id: b.id,
         productId: p.id,
         batchNumber: b.batchNumber,
@@ -137,14 +152,44 @@ export default function POSTerminal() {
 
       // Descontar inventario de forma permanente y reactiva en el store global
       cart.forEach((item) => {
-        deductStock(activeBranchId, item.product.id, item.quantity);
+        const qtyToDeduct = item.sellingMode === 'unit' && item.product.unitsPerBox 
+          ? item.quantity / item.product.unitsPerBox 
+          : item.quantity;
+        deductStock(activeBranchId, item.product.id, qtyToDeduct);
       });
+
+      // Registrar la venta en Supabase (en background, sin bloquear UI)
+      const sessionUser = useBranchStore.getState().user;
+      const currentShiftId = useShiftStore.getState().shifts[activeBranchId]?.id;
+      recordSaleInSupabase({
+        branchId: activeBranchId,
+        userId: sessionUser?.id || 'anonymous',
+        cashShiftId: currentShiftId || 'unknown',
+        customerId: selectedCustomer?.id,
+        subtotal: financialSummary.subtotal,
+        taxes: financialSummary.taxes,
+        discount: financialSummary.discount || 0,
+        total: totalPaid,
+        items: cart.map(item => {
+          const qtyToDeduct = item.sellingMode === 'unit' && item.product.unitsPerBox
+            ? item.quantity / item.product.unitsPerBox
+            : item.quantity;
+          const firstBatch = activeBranchBatches[item.product.id]?.[0];
+          return {
+            productId: item.product.id,
+            batchId: firstBatch?.id || 'unknown',
+            quantity: qtyToDeduct,
+            unitPrice: item.product.salePrice,
+            taxRate: item.product.taxRate || 0,
+            subtotal: item.product.salePrice * qtyToDeduct
+          };
+        })
+      }).catch(console.error);
 
       // Acumular la venta en el turno activo en caliente
       useShiftStore.getState().addSale(activeBranchId, totalPaid, paymentMethod === 'cash' ? 'cash' : 'card');
 
       // Guardar la transacción en el historial global de reportes
-      const sessionUser = useBranchStore.getState().user;
       const category = cart[0]?.product.category || 'Varios';
       
       const earnedPoints = selectedCustomer ? Math.floor(totalPaid * 0.05) : undefined; // 5% en puntos solo si hay cliente
@@ -224,7 +269,7 @@ export default function POSTerminal() {
         return newCart;
       }
       
-      return [...prevCart, { product, batch: activeBatch, quantity: 1 }];
+      return [...prevCart, { product, batch: activeBatch, quantity: 1, sellingMode: 'box' }];
     });
     
     setSearchQuery('');
@@ -235,11 +280,25 @@ export default function POSTerminal() {
     setCart(prevCart => prevCart.map(item => {
       if (item.batch.id === batchId) {
         const newQty = Math.max(1, item.quantity + delta);
-        if (newQty > item.batch.quantity) {
+        // Validar stock: si está en modo unidad, convertir la cantidad actual a cajas para comparar con el stock en lote
+        const stockNeeded = item.sellingMode === 'unit' && item.product.unitsPerBox 
+          ? newQty / item.product.unitsPerBox 
+          : newQty;
+          
+        if (stockNeeded > item.batch.quantity) {
           alert('No hay suficiente stock disponible en este lote.');
           return item;
         }
         return { ...item, quantity: newQty };
+      }
+      return item;
+    }));
+  };
+
+  const toggleSellingMode = (batchId: string) => {
+    setCart(prevCart => prevCart.map(item => {
+      if (item.batch.id === batchId && item.product.hasFractions) {
+        return { ...item, sellingMode: item.sellingMode === 'box' ? 'unit' : 'box', quantity: 1 };
       }
       return item;
     }));
@@ -254,7 +313,10 @@ export default function POSTerminal() {
     let totalTaxes = 0;
 
     cart.forEach(item => {
-      const lineSubtotal = item.product.salePrice * item.quantity;
+      const price = item.sellingMode === 'unit' && item.product.unitPrice 
+        ? item.product.unitPrice 
+        : item.product.salePrice;
+      const lineSubtotal = price * item.quantity;
       
       // La configuración fiscal de la sucursal tiene prioridad (Ej. 0% de ley)
       const branchTaxOverride = activeBranch?.config?.taxPercentage === 0 ? 0 : 1;
@@ -441,16 +503,31 @@ export default function POSTerminal() {
                         Lote: {item.batch.batchNumber}
                       </span>
                       <span className="text-[10px] font-medium text-slate-500">
-                        C${item.product.salePrice.toFixed(2)} c/u
+                        C${(item.sellingMode === 'unit' && item.product.unitPrice ? item.product.unitPrice : item.product.salePrice).toFixed(2)} c/u
                       </span>
                     </div>
                   </div>
-                  <button 
-                    onClick={() => removeFromCart(item.batch.id)}
-                    className="text-slate-300 hover:text-rose-600 transition-colors p-1 rounded-md hover:bg-rose-50"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
+                  <div className="flex flex-col gap-2 items-end">
+                    <button 
+                      onClick={() => removeFromCart(item.batch.id)}
+                      className="text-slate-300 hover:text-rose-600 transition-colors p-1 rounded-md hover:bg-rose-50"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                    {item.product.hasFractions && (
+                      <button 
+                        onClick={() => toggleSellingMode(item.batch.id)}
+                        className={cn(
+                          "text-[9px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wider transition-all",
+                          item.sellingMode === 'unit' 
+                            ? "bg-amber-100 text-amber-700 border border-amber-200" 
+                            : "bg-slate-100 text-slate-600 border border-slate-200 hover:bg-slate-200"
+                        )}
+                      >
+                        {item.sellingMode === 'unit' ? 'Unidad' : 'Caja'}
+                      </button>
+                    )}
+                  </div>
                 </div>
 
                 <div className="flex items-center justify-between mt-3 bg-white rounded-lg border border-slate-200 p-1">
@@ -472,7 +549,7 @@ export default function POSTerminal() {
                     </button>
                   </div>
                   <span className="text-xs font-extrabold text-slate-800 pr-1">
-                    C${(item.product.salePrice * item.quantity).toFixed(2)}
+                    C${((item.sellingMode === 'unit' && item.product.unitPrice ? item.product.unitPrice : item.product.salePrice) * item.quantity).toFixed(2)}
                   </span>
                 </div>
               </div>
@@ -574,10 +651,13 @@ export default function POSTerminal() {
                 {cart.map((item, i) => (
                   <div key={i} className="flex justify-between items-start text-left">
                     <div className="pr-2 leading-tight">
-                      <span className="font-bold block">{item.quantity}x {item.product.name}</span>
+                      <span className="font-bold block">
+                        {item.quantity}x {item.product.name} 
+                        {item.sellingMode === 'unit' && <span className="text-[9px] ml-1 bg-slate-200 px-1 py-0.5 rounded text-slate-600">Unidades</span>}
+                      </span>
                       <span className="text-[10px] text-slate-500">Lote: {item.batch.batchNumber}</span>
                     </div>
-                    <span className="font-bold shrink-0">C${(item.product.salePrice * item.quantity).toFixed(2)}</span>
+                    <span className="font-bold shrink-0">C${((item.sellingMode === 'unit' && item.product.unitPrice ? item.product.unitPrice : item.product.salePrice) * item.quantity).toFixed(2)}</span>
                   </div>
                 ))}
               </div>

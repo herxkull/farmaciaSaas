@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import { 
   Plus, 
   Search, 
@@ -20,7 +20,11 @@ import { useCustomerStore } from '../../../stores/customerStore';
 import type { Customer } from '../../../stores/customerStore';
 
 export default function CustomersScreen() {
-  const { customers, addCustomer, updateCustomer } = useCustomerStore();
+  const { customers, addCustomer, updateCustomer, fetchCustomers } = useCustomerStore();
+  
+  React.useEffect(() => {
+    fetchCustomers();
+  }, [fetchCustomers]);
   
   // FILTRADO Y BÚSQUEDA
   const [searchQuery, setSearchQuery] = useState('');
@@ -127,47 +131,53 @@ export default function CustomersScreen() {
   };
 
   // GUARDAR CLIENTE (SUBMIT)
-  const handleSaveCustomerSubmit = (e: React.FormEvent) => {
+  const handleSaveCustomerSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!cName) return;
 
-    if (selectedCustomer) {
-      // EDITAR
-      updateCustomer(selectedCustomer.id, {
-        name: cName,
-        phone: cPhone,
-        email: cEmail,
-        loyaltyTier: cLoyalty,
-        points: Number(cPoints),
-        creditLimit: Number(cCreditLimit),
-        pendingBalance: Number(cPendingBalance),
-        taxName: cTaxName,
-        taxId: cTaxId,
-        taxRegime: cTaxRegime,
-        address: cAddress,
-        city: cCity
-      });
-      alert(`Expediente de "${cName}" actualizado con éxito.`);
-    } else {
-      // CREAR NUEVO
-      addCustomer({
-        name: cName,
-        phone: cPhone,
-        email: cEmail,
-        loyaltyTier: cLoyalty,
-        points: Number(cPoints) || 0,
-        taxName: cTaxName,
-        taxId: cTaxId,
-        taxRegime: cTaxRegime,
-        address: cAddress,
-        city: cCity,
-        creditLimit: Number(cCreditLimit) || 0,
-        pendingBalance: Number(cPendingBalance) || 0,
-      });
-      alert(`Paciente "${cName}" registrado e incorporado al programa de fidelidad.`);
-    }
+    try {
+      if (selectedCustomer) {
+        // ACTUALIZAR EXISTENTE
+        await updateCustomer(selectedCustomer.id, {
+          name: cName,
+          phone: cPhone,
+          email: cEmail,
+          loyaltyTier: cLoyalty,
+          points: Number(cPoints),
+          creditLimit: Number(cCreditLimit),
+          pendingBalance: Number(cPendingBalance),
+          taxName: cTaxName,
+          taxId: cTaxId,
+          taxRegime: cTaxRegime,
+          address: cAddress,
+          city: cCity,
+          idNumber: document.getElementById('id_number') ? (document.getElementById('id_number') as HTMLInputElement).value : undefined, // Quick patch to fetch id_number if it exists in form
+        });
+        alert(`Expediente de "${cName}" actualizado con éxito.`);
+      } else {
+        // CREAR NUEVO
+        await addCustomer({
+          name: cName,
+          phone: cPhone,
+          email: cEmail,
+          loyaltyTier: cLoyalty,
+          points: Number(cPoints) || 0,
+          taxName: cTaxName,
+          taxId: cTaxId,
+          taxRegime: cTaxRegime,
+          address: cAddress,
+          city: cCity,
+          creditLimit: Number(cCreditLimit) || 0,
+          pendingBalance: Number(cPendingBalance) || 0,
+          idNumber: document.getElementById('id_number') ? (document.getElementById('id_number') as HTMLInputElement).value : undefined,
+        });
+        alert(`Paciente "${cName}" registrado e incorporado al programa de fidelidad.`);
+      }
 
-    setShowSlideOver(false);
+      setShowSlideOver(false);
+    } catch (err: any) {
+      alert(`Error al guardar: ${err.message || 'Error desconocido'}`);
+    }
   };
 
   return (

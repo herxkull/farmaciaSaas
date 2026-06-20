@@ -5,6 +5,9 @@ import { cn } from '../../../lib/utils';
 import { useBranchStore } from '../../../stores/branchStore';
 import type { BranchInfo } from '../../../stores/branchStore';
 import { useInventoryStore } from '../../../stores/inventoryStore';
+import { useCustomerStore } from '../../../stores/customerStore';
+import { useTransactionStore } from '../../../stores/transactionStore';
+import { useShiftStore } from '../../../stores/shiftStore';
 
 export default function TenantSetup() {
   const navigate = useNavigate();
@@ -56,6 +59,12 @@ export default function TenantSetup() {
         rfc: rfc || 'XAXX010101000',
         receiptHeader: chainName || 'Mi Cadena Farmacéutica'
       });
+
+      // Limpiar los stores de datos globales para que la nueva farmacia inicie desde cero
+      useCustomerStore.getState().clearCustomers();
+      useTransactionStore.getState().clearTransactions();
+      useInventoryStore.getState().clearInventory();
+      useShiftStore.getState().logout(); // limpia turnos y cajero
 
       // Inicializar el inventario base para la nueva sucursal
       const initializeBranch = useInventoryStore.getState().initializeBranch;

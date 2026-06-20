@@ -4,6 +4,7 @@ import { useBranchStore } from '../../../stores/branchStore';
 import { useAuthRouting } from './useAuthRouting';
 import type { AuthUser, BranchInfo, UserRole, SettingUser } from '../../../stores/branchStore';
 import { supabase } from '../../../lib/supabase';
+import { syncUserToSupabase, fetchUsersFromSupabase } from '../../../lib/supabaseAuth';
 
 export type AuthStep = 'credentials' | 'branch_select';
 
@@ -43,27 +44,56 @@ export function useAuthFlow() {
         return;
       }
 
-      // Llamada Real a Supabase para verificar credenciales
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email: email.trim(),
-        password
-      });
-      
-      if (error) {
-        throw new Error('Credenciales inválidas o correo no verificado.');
-      }
+      // 2. Query Supabase users table directly
+      const { data: dbUser, error: dbError } = await supabase
+        .from('users')
+        .select('*, branch:default_branch_id(*)')
+        .eq('email', email.trim())
+        .single();
 
-      // 2. Búsqueda dinámica en el store de usuarios (RBAC Mock)
-      let matchedUser = users.find(u => u.email.toLowerCase() === email.trim().toLowerCase());
-      
-      if (!matchedUser) {
-        // El usuario existe y verificó su correo en Supabase, pero es nuevo en el almacenamiento local.
-        // Lo inyectamos como Propietario (OWNER).
-        const newUser: SettingUser = {
-           id: data.user?.id || `u-${Date.now()}`,
-           name: data.user?.user_metadata?.full_name || email.split('@')[0],
+      let matchedUser: SettingUser | null = null;
+      let mockUser: AuthUser;
+
+      if (dbUser && dbUser.password_hash === password) {
+        if (!dbUser.is_active) throw new Error('Su cuenta ha sido suspendida. Contacte al administrador.');
+
+        matchedUser = {
+          id: dbUser.id,
+          name: dbUser.name,
+          email: dbUser.email,
+          role: dbUser.role,
+          roleLabel: dbUser.role === 'TENANT_OWNER' ? 'Propietario' : 'Cajero',
+          branch: dbUser.branch ? dbUser.branch.name : 'Todas (Corporativo)',
+          status: 'active',
+          lastAccess: 'Ahora mismo',
+          color: 'indigo',
+          permissions: { processSale: true, applyDiscount: true, voidInvoice: true, adjustStock: true, purchaseOrder: true }
+        };
+
+        mockUser = {
+          id: dbUser.id,
+          name: dbUser.name,
+          role: dbUser.role as UserRole,
+          tenantId: dbUser.tenant_id,
+          assignedBranchId: dbUser.default_branch_id
+        };
+      } else {
+        // Fallback: Si no está en Supabase Users, probamos si es una cuenta de Auth validada
+        // Esto pasa en el primer login después del onboarding si no sembramos el usuario.
+        const { data: sbData, error } = await supabase.auth.signInWithPassword({
+          email: email.trim(),
+          password
+        });
+        
+        if (error) {
+          throw new Error('Credenciales inválidas o correo no encontrado.');
+        }
+
+        matchedUser = {
+           id: sbData.user?.id || `u-${Date.now()}`,
+           name: sbData.user?.user_metadata?.full_name || email.split('@')[0],
            email: email.trim(),
-           role: 'OWNER',
+           role: sbData.user?.user_metadata?.role || 'OWNER',
            roleLabel: 'Propietario',
            branch: 'Todas (Corporativo)',
            status: 'active',
@@ -72,28 +102,27 @@ export function useAuthFlow() {
            password: password,
            permissions: { processSale: true, applyDiscount: true, voidInvoice: true, adjustStock: true, purchaseOrder: true }
         };
-        
-        const currentUsers = useBranchStore.getState().users || [];
-        useBranchStore.getState().setUsers([...currentUsers, newUser]);
-        
-        matchedUser = newUser;
+
+        // Generar un Tenant ID único para la nueva cuenta
+        const newTenantId = `t-${sbData.user?.id || Date.now()}`;
+
+        // Sync to Supabase so next time it logs in fast
+        await syncUserToSupabase(matchedUser, undefined, newTenantId);
+
+        // Actualizar el estado local para que aparezca en Configuraciones sin tener que recargar
+        useBranchStore.getState().setUsers(prev => {
+          const exists = prev.find(u => u.id === matchedUser.id);
+          if (exists) return prev;
+          return [...prev, matchedUser];
+        });
+
+        mockUser = {
+          id: matchedUser.id,
+          name: matchedUser.name,
+          role: matchedUser.role as UserRole,
+          tenantId: `t-${sbData.user?.id || Date.now()}`,
+        };
       }
-
-      if (matchedUser.status === 'suspended') {
-        throw new Error('Su cuenta ha sido suspendida. Contacte al administrador.');
-      }
-
-      // Mapear la sucursal asignada por texto al id correspondiente de la sucursal
-      const assignedBranch = availableBranches.find(b => b.name === matchedUser.branch);
-      const assignedBranchId = assignedBranch ? assignedBranch.id : undefined;
-
-      const mockUser: AuthUser = {
-        id: matchedUser.id,
-        name: matchedUser.name,
-        role: matchedUser.role as UserRole,
-        tenantId: 't-zefiro-global',
-        assignedBranchId: assignedBranchId
-      };
 
       // Procesar redirección RBAC
       const nextStep = handleLoginRedirect(mockUser);

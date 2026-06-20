@@ -14,11 +14,18 @@ import {
   MoreVertical, 
   X, 
   Check, 
-  Loader2
+  Loader2,
+  Database,
+  Download,
+  Upload,
+  Trash2
 } from 'lucide-react';
 import { cn } from '../../../lib/utils';
 import { useBranchStore } from '../../../stores/branchStore';
 import type { SettingUser } from '../../../stores/branchStore';
+import { useInventoryStore } from '../../../stores/inventoryStore';
+import { supabase } from '../../../lib/supabase';
+import { syncUserToSupabase, deleteUserFromSupabase } from '../../../lib/supabaseAuth';
 
 // ========================================================
 // DOMINIO DE DATOS: CONFIGURACIÓN DE SEGURIDAD Y HARDWARE
@@ -46,10 +53,10 @@ export default function SettingsScreen() {
   const isDemoBranch = activeBranch?.id?.startsWith('b-0');
 
   const location = useLocation();
-  const [activeTab, setActiveTab] = useState<'profile' | 'users' | 'security' | 'hardware' | 'tickets'>(() => {
+  const [activeTab, setActiveTab] = useState<'profile' | 'users' | 'security' | 'hardware' | 'tickets' | 'data'>(() => {
     if (location.state && typeof location.state === 'object' && 'tab' in location.state) {
       const tab = location.state.tab as any;
-      if (['profile', 'users', 'security', 'hardware', 'tickets'].includes(tab)) {
+      if (['profile', 'users', 'security', 'hardware', 'tickets', 'data'].includes(tab)) {
         return tab;
       }
     }
@@ -59,7 +66,7 @@ export default function SettingsScreen() {
   useEffect(() => {
     if (location.state && typeof location.state === 'object' && 'tab' in location.state) {
       const tab = location.state.tab as any;
-      if (['profile', 'users', 'security', 'hardware', 'tickets'].includes(tab)) {
+      if (['profile', 'users', 'security', 'hardware', 'tickets', 'data'].includes(tab)) {
         setActiveTab(tab);
       }
     }
@@ -72,6 +79,7 @@ export default function SettingsScreen() {
     { id: 'security', name: 'Seguridad & Auditoría', icon: ShieldCheck },
     { id: 'hardware', name: 'Hardware y POS', icon: HardDrive },
     { id: 'tickets', name: 'Tickets & Facturación', icon: Receipt },
+    { id: 'data', name: 'Base de Datos', icon: Database },
   ] as const;
 
   // ESTADO DE USUARIOS RBAC DESDE STORE GLOBAL
@@ -120,6 +128,64 @@ export default function SettingsScreen() {
   const [localChainName, setLocalChainName] = useState(tenantConfig?.chainName || '');
   const [localRfc, setLocalRfc] = useState(tenantConfig?.rfc || '');
   const [localReceiptHeader, setLocalReceiptHeader] = useState(tenantConfig?.receiptHeader || '');
+
+  // LOGICA IMPORTAR/EXPORTAR DATOS
+  const { inventory, setBranchInventory } = useInventoryStore();
+
+  const handleExportInventory = () => {
+    if (!activeBranch) {
+      alert('Debes seleccionar una sucursal para exportar.');
+      return;
+    }
+    const branchData = inventory[activeBranch.id] || [];
+    const jsonStr = JSON.stringify(branchData, null, 2);
+    const blob = new Blob([jsonStr], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `inventario_${activeBranch.id}_${new Date().toISOString().split('T')[0]}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleImportInventory = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!activeBranch || !e.target.files || e.target.files.length === 0) return;
+    const file = e.target.files[0];
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const json = JSON.parse(event.target?.result as string);
+        if (Array.isArray(json)) {
+          const sanitized = json.map((p: any) => ({
+            ...p,
+            batches: Array.isArray(p.batches) ? p.batches : []
+          }));
+          
+          useInventoryStore.getState().importInventoryToCloud(activeBranch.id, sanitized)
+            .then(() => alert('Inventario importado exitosamente a la nube para la sucursal seleccionada.'))
+            .catch((err) => alert(`Error al importar: ${err.message}`));
+          
+        } else {
+          alert('El formato del archivo JSON no es válido. Debe ser un arreglo de productos.');
+        }
+      } catch (error) {
+        alert('Error al parsear el archivo JSON. Asegúrate de que sea válido.');
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = ''; // reset input
+  };
+
+  const handleResetInventory = () => {
+    if (!activeBranch) return;
+    if (confirm('¿Estás seguro de que deseas VACIAR el inventario de esta sucursal? Esta acción borrará todo el stock de la base de datos y no se puede deshacer.')) {
+      useInventoryStore.getState().clearInventoryInCloud(activeBranch.id)
+        .then(() => alert('Inventario reiniciado exitosamente. La base de datos en la nube está vacía.'))
+        .catch((err) => alert(`Error al vaciar: ${err.message}`));
+    }
+  };
 
   // Sincronizar si cambia el store externamente
   useEffect(() => {
@@ -185,38 +251,14 @@ export default function SettingsScreen() {
   };
 
   // GUARDAR O CREAR USUARIO DESDE SLIDE-OVER
-  const handleSaveUserSubmit = (e: React.FormEvent) => {
+  const handleSaveUserSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!userName || !userEmail) return;
 
     if (isEditing && targetUserId) {
       // Editar existente
-      setUsers(prev => prev.map(u => {
-        if (u.id === targetUserId) {
-          return {
-            ...u,
-            name: userName,
-            email: userEmail,
-            password: userPassword,
-            role: userRole,
-            roleLabel: userRole === 'CASHIER' ? 'Cajero' : userRole === 'PHARMACIST' ? 'Químico Regente' : 'Gerente Sucursal',
-            branch: userBranch,
-            permissions: {
-              processSale: permProcessSale,
-              applyDiscount: permApplyDiscount,
-              voidInvoice: permVoidInvoice,
-              adjustStock: permAdjustStock,
-              purchaseOrder: permPurchaseOrder
-            }
-          };
-        }
-        return u;
-      }));
-      alert(`¡Usuario "${userName}" editado con éxito en la matriz RBAC!`);
-    } else {
-      // Crear nuevo
-      const newUser: SettingUser = {
-        id: `u-${Date.now()}`,
+      const updatedUser: SettingUser = {
+        id: targetUserId,
         name: userName,
         email: userEmail,
         password: userPassword,
@@ -234,8 +276,65 @@ export default function SettingsScreen() {
           purchaseOrder: permPurchaseOrder
         }
       };
-      setUsers(prev => [...prev, newUser]);
-      alert(`¡Usuario "${userName}" aprovisionado con éxito en la matriz de seguridad!`);
+
+      setUsers(prev => prev.map(u => u.id === targetUserId ? updatedUser : u));
+      
+      // Update in Supabase custom users table
+      const assignedBranchId = availableBranches.find(b => b.name === userBranch)?.id;
+      await syncUserToSupabase(updatedUser, assignedBranchId);
+      
+      alert(`¡Usuario "${userName}" editado con éxito en la nube!`);
+    } else {
+      // Crear nuevo en Supabase
+      if (!userPassword) {
+        alert('Se requiere una contraseña para registrar el usuario en la nube.');
+        return;
+      }
+
+      try {
+        const { data, error } = await supabase.auth.signUp({
+          email: userEmail,
+          password: userPassword,
+          options: {
+            data: { full_name: userName, role: userRole }
+          }
+        });
+
+        if (error) {
+          console.error(error);
+          alert(`Error al crear usuario en la nube: ${error.message}`);
+          return;
+        }
+
+        const newUser: SettingUser = {
+          id: data.user?.id || `u-${Date.now()}`,
+          name: userName,
+          email: userEmail,
+          password: userPassword,
+          role: userRole,
+          roleLabel: userRole === 'CASHIER' ? 'Cajero' : userRole === 'PHARMACIST' ? 'Químico Regente' : 'Gerente Sucursal',
+          branch: userBranch,
+          status: 'active',
+          lastAccess: 'Nunca',
+          color: userRole === 'CASHIER' ? 'slate' : userRole === 'PHARMACIST' ? 'emerald' : 'indigo',
+          permissions: {
+            processSale: permProcessSale,
+            applyDiscount: permApplyDiscount,
+            voidInvoice: permVoidInvoice,
+            adjustStock: permAdjustStock,
+            purchaseOrder: permPurchaseOrder
+          }
+        };
+        setUsers(prev => [...prev, newUser]);
+        
+        // Sync to Supabase custom users table
+        const assignedBranchId = availableBranches.find(b => b.name === userBranch)?.id;
+        await syncUserToSupabase(newUser, assignedBranchId);
+
+        alert(`¡Usuario "${userName}" aprovisionado con éxito en la matriz y subido a Supabase!`);
+      } catch (err: any) {
+        alert(`Ocurrió un error inesperado: ${err.message}`);
+      }
     }
 
     setShowSlideOver(false);
@@ -254,6 +353,20 @@ export default function SettingsScreen() {
     }));
     alert(`Estado de acceso modificado con éxito.`);
     setActiveUserDropdown(null);
+  };
+
+  // ELIMINAR USUARIO
+  const handleDeleteUser = async (userId: string, userName: string) => {
+    if (window.confirm(`¿Estás seguro de que deseas eliminar permanentemente al usuario "${userName}"? Esta acción no se puede deshacer.`)) {
+      try {
+        await deleteUserFromSupabase(userId);
+        setUsers(prev => prev.filter(u => u.id !== userId));
+        alert(`Usuario "${userName}" ha sido eliminado con éxito.`);
+        setActiveUserDropdown(null);
+      } catch (err: any) {
+        alert(`Error al eliminar usuario: ${err.message}`);
+      }
+    }
   };
 
   // FORZAR CIERRE DE SESIÓN
@@ -447,6 +560,12 @@ export default function SettingsScreen() {
                                   className="w-full text-left px-3 py-1.5 hover:bg-slate-50 rounded-lg text-[11px] font-bold text-slate-700 cursor-pointer transition-colors"
                                 >
                                   {user.status === 'active' ? 'Suspender Acceso' : 'Activar Acceso'}
+                                </button>
+                                <button 
+                                  onClick={() => handleDeleteUser(user.id, user.name)}
+                                  className="w-full text-left px-3 py-1.5 hover:bg-slate-50 rounded-lg text-[11px] font-bold text-rose-600 cursor-pointer transition-colors"
+                                >
+                                  Eliminar Usuario
                                 </button>
                                 <div className="h-px bg-slate-100 my-1"></div>
                                 <button 
@@ -806,6 +925,65 @@ export default function SettingsScreen() {
                   <Save className="w-4 h-4" /> Guardar Diseño
                 </button>
               </div>
+            </div>
+          )}
+
+          {/* TAB 6: BASE DE DATOS E IMPORTACIONES */}
+          {activeTab === 'data' && (
+            <div className="space-y-6 animate-in fade-in duration-200">
+              <div>
+                <h3 className="text-lg font-extrabold text-slate-800">Gestión de Base de Datos</h3>
+                <p className="text-xs text-slate-400 font-medium mt-0.5">Exporta o importa el catálogo de inventario en formato JSON de la sucursal actual.</p>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                
+                <div className="bg-slate-50 border border-slate-200 rounded-2xl p-6 flex flex-col items-center text-center justify-center space-y-4">
+                  <div className="w-12 h-12 bg-indigo-100 text-indigo-600 rounded-full flex items-center justify-center mb-2">
+                    <Download className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-bold text-slate-800">Descargar Inventario</h4>
+                    <p className="text-xs text-slate-500 mt-1">Genera un archivo JSON con todas las existencias, lotes y precios de la sucursal activa.</p>
+                  </div>
+                  <button 
+                    onClick={handleExportInventory}
+                    className="mt-4 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-extrabold flex items-center gap-2 shadow-md active:scale-95 transition-all cursor-pointer w-full justify-center"
+                  >
+                    <Download className="w-4 h-4" /> Exportar a JSON
+                  </button>
+                </div>
+
+                <div className="bg-slate-50 border border-slate-200 rounded-2xl p-6 flex flex-col items-center text-center justify-center space-y-4 relative">
+                  <div className="w-12 h-12 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mb-2">
+                    <Upload className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-bold text-slate-800">Importar Inventario</h4>
+                    <p className="text-xs text-slate-500 mt-1">Sube un archivo JSON para sobrescribir o inicializar el inventario de la sucursal activa.</p>
+                  </div>
+                  <label className="mt-4 px-5 py-2.5 bg-white border-2 border-emerald-500 hover:bg-emerald-50 text-emerald-600 rounded-xl text-xs font-extrabold flex items-center gap-2 active:scale-95 transition-all cursor-pointer w-full justify-center">
+                    <Upload className="w-4 h-4" /> Seleccionar JSON
+                    <input 
+                      type="file" 
+                      accept=".json"
+                      onChange={handleImportInventory}
+                      className="hidden" 
+                    />
+                  </label>
+                </div>
+
+              </div>
+
+              <div className="mt-8 pt-6 border-t border-rose-100 flex justify-end">
+                <button 
+                  onClick={handleResetInventory}
+                  className="px-5 py-2.5 bg-white border-2 border-rose-500 hover:bg-rose-50 text-rose-600 rounded-xl text-xs font-extrabold flex items-center gap-2 active:scale-95 transition-all cursor-pointer"
+                >
+                  <Trash2 className="w-4 h-4" /> Vaciar Base de Datos
+                </button>
+              </div>
+
             </div>
           )}
 

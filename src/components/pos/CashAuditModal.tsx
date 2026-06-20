@@ -42,6 +42,7 @@ import { useBranchStore } from '../../stores/branchStore';
 
 export default function CashAuditModal({ isOpen, onClose, isOpeningFlow = false }: CashAuditModalProps) {
   const activeBranch = useBranchStore((state) => state.activeBranch);
+  const authUser = useBranchStore((state) => state.user);
   const currentShift = useShiftStore((state) => activeBranch ? state.shifts[activeBranch.id] : null);
   const { openShift, closeShift, user } = useShiftStore();
 
@@ -210,7 +211,7 @@ export default function CashAuditModal({ isOpen, onClose, isOpeningFlow = false 
             <div className="space-y-1.5">
               <label className="block text-[10px] font-black uppercase text-slate-400 tracking-wider">Cajero Responsable</label>
               <div className="px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-600">
-                {user?.name || 'Hernández, Hersan'} ({user?.role === 'CASHIER' ? 'Cajero POS' : 'Administrador'})
+                {authUser?.name || 'Usuario'} ({authUser?.role === 'CASHIER' ? 'Cajero POS' : (authUser?.role || 'Administrador')})
               </div>
             </div>
 
@@ -279,7 +280,7 @@ export default function CashAuditModal({ isOpen, onClose, isOpeningFlow = false 
               <div>
                 <h3 className="text-base font-extrabold text-slate-800 tracking-tight">Arqueo de Caja - Cierre de Turno</h3>
                 <p className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider mt-0.5">
-                  Cajero: <span className="text-slate-600">{user?.name || 'Hernández, Hersan'}</span> • {activeBranch?.name || 'Sucursal Centro'}
+                  Cajero: <span className="text-slate-600">{authUser?.name || 'Usuario'}</span> • {activeBranch?.name || 'Sucursal Centro'}
                 </p>
               </div>
             </div>
@@ -669,7 +670,7 @@ export default function CashAuditModal({ isOpen, onClose, isOpeningFlow = false 
                       </div>
                       <div className="flex justify-between">
                         <span>CAJERO:</span>
-                        <span>{user?.name.toUpperCase()}</span>
+                        <span>{authUser?.name?.toUpperCase() || 'USUARIO'}</span>
                       </div>
                       <div className="flex justify-between">
                         <span>TURNO ID:</span>

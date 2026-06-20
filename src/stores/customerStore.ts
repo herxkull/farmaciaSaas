@@ -1,5 +1,6 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { supabase } from '../lib/supabase';
+import { useBranchStore } from './branchStore';
 
 export interface CustomerPurchase {
   ticketId: string;
@@ -34,9 +35,10 @@ interface CustomerState {
   customers: Customer[];
   
   // Actions
-  addCustomer: (customer: Partial<Customer> & { name: string }) => Customer;
-  updateCustomer: (id: string, data: Partial<Customer>) => void;
-  deleteCustomer: (id: string) => void;
+  fetchCustomers: () => Promise<void>;
+  addCustomer: (customer: Partial<Customer> & { name: string }) => Promise<Customer>;
+  updateCustomer: (id: string, data: Partial<Customer>) => Promise<void>;
+  deleteCustomer: (id: string) => Promise<void>;
   searchCustomers: (query: string) => Customer[];
   clearCustomers: () => void;
 }
@@ -132,73 +134,208 @@ const INITIAL_CUSTOMERS: Customer[] = [
   }
 ];
 
-export const useCustomerStore = create<CustomerState>()(
-  persist(
-    (set, get) => ({
-      customers: INITIAL_CUSTOMERS,
+export const useCustomerStore = create<CustomerState>()((set, get) => ({
+  customers: [],
 
-      addCustomer: (customerData) => {
-        const newCustomer: Customer = {
-          id: `CLI-${Math.floor(Math.random() * 9000) + 1000}`,
-          name: customerData.name,
-          phone: customerData.phone || '',
-          email: customerData.email || '',
-          loyaltyTier: customerData.loyaltyTier || 'Bronce',
-          points: customerData.points || 0,
-          ltv: customerData.ltv || 0.00,
-          lastVisit: customerData.lastVisit || 'Hoy (Registro)',
-          status: customerData.status || 'active',
-          taxName: customerData.taxName || customerData.name,
-          taxId: customerData.taxId || '',
-          taxRegime: customerData.taxRegime || '605 - Sueldos y Salarios',
-          address: customerData.address || '',
-          city: customerData.city || 'CDMX',
-          creditLimit: customerData.creditLimit || 0,
-          pendingBalance: customerData.pendingBalance || 0,
-          purchases: customerData.purchases || [],
-          idNumber: customerData.idNumber || '',
-        };
+  fetchCustomers: async () => {
+    const tenantId = useBranchStore.getState().user?.tenantId;
+    if (!tenantId) return;
 
-        set((state) => ({
-          customers: [newCustomer, ...state.customers]
-        }));
-        
-        return newCustomer;
-      },
+    const { data, error } = await supabase
+      .from('customers')
+      .select('*')
+      .eq('tenant_id', tenantId)
+      .order('created_at', { ascending: false });
 
-      updateCustomer: (id, data) => {
-        set((state) => ({
-          customers: state.customers.map(c => 
-            c.id === id ? { ...c, ...data } : c
-          )
-        }));
-      },
-
-      deleteCustomer: (id) => {
-        set((state) => ({
-          customers: state.customers.filter(c => c.id !== id)
-        }));
-      },
-
-      searchCustomers: (query) => {
-        const { customers } = get();
-        if (!query.trim()) return customers;
-        
-        const lowerQuery = query.toLowerCase();
-        return customers.filter(c => 
-          c.name.toLowerCase().includes(lowerQuery) ||
-          (c.phone && c.phone.includes(lowerQuery)) ||
-          (c.email && c.email.toLowerCase().includes(lowerQuery)) ||
-          (c.id && c.id.toLowerCase().includes(lowerQuery)) ||
-          (c.taxId && c.taxId.toLowerCase().includes(lowerQuery)) ||
-          (c.idNumber && c.idNumber.toLowerCase().includes(lowerQuery))
-        );
-      },
-
-      clearCustomers: () => set({ customers: [] })
-    }),
-    {
-      name: 'zefiro-customers-storage',
+    if (!error && data) {
+      const parsed = data.map(c => ({
+        id: c.id,
+        name: c.name,
+        phone: c.phone || '',
+        email: c.email || '',
+        loyaltyTier: (c.loyalty_tier as any) || 'Bronce',
+        points: c.loyalty_points || 0,
+        ltv: parseFloat(c.ltv || 0),
+        lastVisit: c.last_visit || '',
+        status: (c.status as any) || 'active',
+        taxName: c.tax_name || '',
+        taxId: c.tax_id || '',
+        taxRegime: c.tax_regime || '',
+        address: c.address || '',
+        city: c.city || '',
+        creditLimit: parseFloat(c.credit_limit || 0),
+        pendingBalance: parseFloat(c.pending_balance || 0),
+        idNumber: c.id_number || '',
+        purchases: [] // we can join purchases later if needed
+      }));
+      set({ customers: parsed });
     }
-  )
-);
+  },
+
+  addCustomer: async (customerData) => {
+    const tenantId = useBranchStore.getState().user?.tenantId;
+    if (!tenantId) throw new Error('No session');
+    const customerId = `CLI-${Math.floor(Math.random() * 9000) + 1000}`;
+    const now = new Date().toISOString();
+    
+    if (customerData.phone) {
+      if (!/^\d{8}$/.test(customerData.phone)) {
+        throw new Error('El número de teléfono debe tener exactamente 8 dígitos.');
+      }
+      const existingPhone = get().customers.find(c => c.phone === customerData.phone);
+      if (existingPhone) {
+        throw new Error('Este número de teléfono ya está registrado.');
+      }
+    }
+
+    if (customerData.idNumber) {
+      const existingId = get().customers.find(c => c.idNumber === customerData.idNumber);
+      if (existingId) {
+        throw new Error('Esta cédula ya está registrada.');
+      }
+    }
+
+    // Convert to DB snake_case
+    const dbPayload = {
+      id: customerId,
+      tenant_id: tenantId,
+      name: customerData.name,
+      phone: customerData.phone || '',
+      email: customerData.email || '',
+      loyalty_tier: customerData.loyaltyTier || 'Bronce',
+      loyalty_points: customerData.points || 0,
+      ltv: customerData.ltv || 0.00,
+      last_visit: customerData.lastVisit || 'Hoy (Registro)',
+      status: customerData.status || 'active',
+      tax_name: customerData.taxName || customerData.name,
+      tax_id: customerData.taxId || '',
+      tax_regime: customerData.taxRegime || '605 - Sueldos y Salarios',
+      address: customerData.address || '',
+      city: customerData.city || 'CDMX',
+      credit_limit: customerData.creditLimit || 0,
+      pending_balance: customerData.pendingBalance || 0,
+      id_number: customerData.idNumber || '',
+      updated_at: now,
+    };
+
+    const { data, error } = await supabase
+      .from('customers')
+      .insert(dbPayload)
+      .select()
+      .single();
+
+    if (error) {
+      console.error("Error creating customer:", error);
+      throw error;
+    }
+
+    const newCustomer: Customer = {
+      id: data.id,
+      name: data.name,
+      phone: data.phone || '',
+      email: data.email || '',
+      loyaltyTier: data.loyalty_tier as any,
+      points: data.loyalty_points || 0,
+      ltv: parseFloat(data.ltv || 0),
+      lastVisit: data.last_visit || '',
+      status: data.status as any,
+      taxName: data.tax_name || '',
+      taxId: data.tax_id || '',
+      taxRegime: data.tax_regime || '',
+      address: data.address || '',
+      city: data.city || '',
+      creditLimit: parseFloat(data.credit_limit || 0),
+      pendingBalance: parseFloat(data.pending_balance || 0),
+      idNumber: data.id_number || '',
+      purchases: [],
+    };
+
+    set((state) => ({
+      customers: [newCustomer, ...state.customers]
+    }));
+    
+    return newCustomer;
+  },
+
+  updateCustomer: async (id, data) => {
+    if (data.phone !== undefined && data.phone !== '') {
+      if (!/^\d{8}$/.test(data.phone)) {
+        throw new Error('El número de teléfono debe tener exactamente 8 dígitos.');
+      }
+      const existingPhone = get().customers.find(c => c.phone === data.phone && c.id !== id);
+      if (existingPhone) {
+        throw new Error('Este número de teléfono ya está registrado.');
+      }
+    }
+
+    if (data.idNumber !== undefined && data.idNumber !== '') {
+      const existingId = get().customers.find(c => c.idNumber === data.idNumber && c.id !== id);
+      if (existingId) {
+        throw new Error('Esta cédula ya está registrada.');
+      }
+    }
+
+    const dbPayload: any = {
+      updated_at: new Date().toISOString()
+    };
+    if (data.name !== undefined) dbPayload.name = data.name;
+    if (data.phone !== undefined) dbPayload.phone = data.phone;
+    if (data.email !== undefined) dbPayload.email = data.email;
+    if (data.loyaltyTier !== undefined) dbPayload.loyalty_tier = data.loyaltyTier;
+    if (data.points !== undefined) dbPayload.loyalty_points = data.points;
+    if (data.ltv !== undefined) dbPayload.ltv = data.ltv;
+    if (data.lastVisit !== undefined) dbPayload.last_visit = data.lastVisit;
+    if (data.status !== undefined) dbPayload.status = data.status;
+    if (data.taxName !== undefined) dbPayload.tax_name = data.taxName;
+    if (data.taxId !== undefined) dbPayload.tax_id = data.taxId;
+    if (data.taxRegime !== undefined) dbPayload.tax_regime = data.taxRegime;
+    if (data.address !== undefined) dbPayload.address = data.address;
+    if (data.city !== undefined) dbPayload.city = data.city;
+    if (data.creditLimit !== undefined) dbPayload.credit_limit = data.creditLimit;
+    if (data.pendingBalance !== undefined) dbPayload.pending_balance = data.pendingBalance;
+    if (data.idNumber !== undefined) dbPayload.id_number = data.idNumber;
+
+    const { error } = await supabase
+      .from('customers')
+      .update(dbPayload)
+      .eq('id', id);
+
+    if (!error) {
+      set((state) => ({
+        customers: state.customers.map(c => 
+          c.id === id ? { ...c, ...data } : c
+        )
+      }));
+    }
+  },
+
+  deleteCustomer: async (id) => {
+    const { error } = await supabase
+      .from('customers')
+      .delete()
+      .eq('id', id);
+
+    if (!error) {
+      set((state) => ({
+        customers: state.customers.filter(c => c.id !== id)
+      }));
+    }
+  },
+
+  searchCustomers: (query) => {
+    const { customers } = get();
+    if (!query.trim()) return customers;
+    
+    const lowerQuery = query.toLowerCase();
+    return customers.filter(c => 
+      c.name.toLowerCase().includes(lowerQuery) ||
+      (c.phone && c.phone.includes(lowerQuery)) ||
+      (c.email && c.email.toLowerCase().includes(lowerQuery)) ||
+      (c.id && c.id.toLowerCase().includes(lowerQuery)) ||
+      (c.taxId && c.taxId.toLowerCase().includes(lowerQuery)) ||
+      (c.idNumber && c.idNumber.toLowerCase().includes(lowerQuery))
+    );
+  },
+
+  clearCustomers: () => set({ customers: [] })
+}));

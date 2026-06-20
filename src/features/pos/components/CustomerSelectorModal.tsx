@@ -16,7 +16,13 @@ export function CustomerSelectorModal({
   selectedCustomerId,
   onSelectCustomer 
 }: CustomerSelectorModalProps) {
-  const { customers, searchCustomers, addCustomer } = useCustomerStore();
+  const { customers, searchCustomers, addCustomer, fetchCustomers } = useCustomerStore();
+
+  React.useEffect(() => {
+    if (isOpen) {
+      fetchCustomers();
+    }
+  }, [isOpen, fetchCustomers]);
   const [searchQuery, setSearchQuery] = useState('');
   const [isCreatingNew, setIsCreatingNew] = useState(false);
   
@@ -38,23 +44,27 @@ export function CustomerSelectorModal({
     onClose();
   };
 
-  const handleCreateCustomer = (e: React.FormEvent) => {
+  const handleCreateCustomer = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newName.trim()) return;
 
-    const newCustomer = addCustomer({
-      name: newName.trim(),
-      phone: newPhone.trim() || undefined,
-      idNumber: newIdNumber.trim() || undefined,
-    });
-    
-    // Reset form
-    setNewName('');
-    setNewPhone('');
-    setNewIdNumber('');
-    
-    // Select the new customer
-    handleSelect(newCustomer);
+    try {
+      const newCustomer = await addCustomer({
+        name: newName.trim(),
+        phone: newPhone.trim() || undefined,
+        idNumber: newIdNumber.trim() || undefined,
+      });
+      
+      // Reset form
+      setNewName('');
+      setNewPhone('');
+      setNewIdNumber('');
+      
+      // Select the new customer
+      handleSelect(newCustomer);
+    } catch (err: any) {
+      alert(`Error al guardar: ${err.message || 'Error desconocido'}`);
+    }
   };
 
   return (

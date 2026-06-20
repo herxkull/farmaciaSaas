@@ -23,6 +23,7 @@ import { useBranchStore } from '../../../stores/branchStore';
 import { useTransactionStore } from '../../../stores/transactionStore';
 import type { Transaction } from '../../../stores/transactionStore';
 import { useInventoryStore } from '../../../stores/inventoryStore';
+import CategoryAnalysisView from './CategoryAnalysisView';
 
 export default function ReportsScreen() {
   const availableBranches = useBranchStore((state) => state.availableBranches);
@@ -35,7 +36,7 @@ export default function ReportsScreen() {
   
   const totalInventoryValue = branchInventory.reduce((sum, item) => sum + (item.salePrice * item.stockTotal), 0);
   const totalItemsCount = branchInventory.reduce((sum, item) => sum + item.stockTotal, 0);
-  const [activeTab, setActiveTab] = useState<'bi' | 'compliance'>('bi');
+  const [activeTab, setActiveTab] = useState<'bi' | 'compliance' | 'categories'>('bi');
   const [isFiltersOpen, setIsFiltersOpen] = useState(true);
 
   // ESTADOS DE FILTRADO BI
@@ -187,6 +188,20 @@ export default function ReportsScreen() {
           <Printer className="w-4 h-4" />
           <span>Reportes Legales y de Cierre</span>
           {activeTab === 'compliance' && (
+            <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-600 rounded-full animate-in fade-in duration-300"></div>
+          )}
+        </button>
+
+        <button
+          onClick={() => setActiveTab('categories')}
+          className={cn(
+            "pb-3.5 text-sm font-extrabold tracking-tight relative transition-all cursor-pointer flex items-center gap-2",
+            activeTab === 'categories' ? "text-indigo-600" : "text-slate-400 hover:text-slate-600"
+          )}
+        >
+          <Layers className="w-4 h-4" />
+          <span>Análisis por Categoría</span>
+          {activeTab === 'categories' && (
             <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-600 rounded-full animate-in fade-in duration-300"></div>
           )}
         </button>
@@ -551,6 +566,13 @@ export default function ReportsScreen() {
           </div>
 
         </div>
+      )}
+
+      {/* ======================================================== */}
+      {/* TAB 3: ANÁLISIS DE CATEGORÍAS                            */}
+      {/* ======================================================== */}
+      {activeTab === 'categories' && (
+        <CategoryAnalysisView />
       )}
 
       {/* ======================================================== */}

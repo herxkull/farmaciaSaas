@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { supabase } from '../lib/supabase';
 
 export interface Transaction {
   id: string;
@@ -16,45 +16,72 @@ export interface Transaction {
 
 interface TransactionState {
   transactions: Transaction[];
+  fetchTransactionsFromSupabase: () => Promise<void>;
   addTransaction: (transaction: Omit<Transaction, 'id' | 'date'>) => void;
   clearTransactions: () => void;
 }
 
-const INITIAL_TRANSACTIONS: Transaction[] = [
-  { id: 'TX-99012', date: '2026-05-18 11:24', branchId: 'b-01', branchName: 'Sucursal Centro', cashier: 'Hernández, Hersan', total: 420.50, paymentMethod: 'Efectivo', category: 'Controlados' },
-  { id: 'TX-99013', date: '2026-05-18 10:45', branchId: 'b-02', branchName: 'Sucursal Norte', cashier: 'Pérez, Ana', total: 1250.00, paymentMethod: 'Tarjeta', category: 'Antibióticos' },
-  { id: 'TX-99014', date: '2026-05-18 09:12', branchId: 'b-01', branchName: 'Sucursal Centro', cashier: 'Hernández, Hersan', total: 85.00, paymentMethod: 'Efectivo', category: 'Gastroenterología' },
-  { id: 'TX-99015', date: '2026-05-17 18:30', branchId: 'b-02', branchName: 'Sucursal Norte', cashier: 'Gómez, Carlos', total: 185.00, paymentMethod: 'Tarjeta', category: 'Controlados' },
-  { id: 'TX-99016', date: '2026-05-17 16:15', branchId: 'b-01', branchName: 'Sucursal Centro', cashier: 'Hernández, Hersan', total: 320.00, paymentMethod: 'Mixto', category: 'Analgésicos' },
-  { id: 'TX-99017', date: '2026-05-17 14:02', branchId: 'b-02', branchName: 'Sucursal Norte', cashier: 'Pérez, Ana', total: 450.00, paymentMethod: 'Tarjeta', category: 'Endocrinología' },
-  { id: 'TX-99018', date: '2026-05-16 12:45', branchId: 'b-01', branchName: 'Sucursal Centro', cashier: 'Gómez, Carlos', total: 110.00, paymentMethod: 'Efectivo', category: 'Antihistamínicos' },
-  { id: 'TX-99019', date: '2026-05-16 10:30', branchId: 'b-02', branchName: 'Sucursal Norte', cashier: 'Pérez, Ana', total: 55.00, paymentMethod: 'Efectivo', category: 'Analgésicos' },
-  { id: 'TX-99020', date: '2026-05-15 17:40', branchId: 'b-01', branchName: 'Sucursal Centro', cashier: 'Hernández, Hersan', total: 640.00, paymentMethod: 'Tarjeta', category: 'Antibióticos' },
-  { id: 'TX-99021', date: '2026-05-15 15:20', branchId: 'b-02', branchName: 'Sucursal Norte', cashier: 'Gómez, Carlos', total: 95.00, paymentMethod: 'Efectivo', category: 'Gastroenterología' }
-];
+export const useTransactionStore = create<TransactionState>()((set) => ({
+  transactions: [],
+  fetchTransactionsFromSupabase: async () => {
+    const { useBranchStore } = await import('./branchStore');
+    const tenantId = useBranchStore.getState().user?.tenantId;
+    if (!tenantId) return;
 
-export const useTransactionStore = create<TransactionState>()(
-  persist(
-    (set) => ({
-      transactions: INITIAL_TRANSACTIONS,
-      addTransaction: (transaction) => {
-        const now = new Date();
-        const dateString = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-        
-        const newTx: Transaction = {
-          ...transaction,
-          id: 'TX-' + Math.floor(100000 + Math.random() * 900000),
-          date: dateString,
-        };
-        
-        set((state) => ({
-          transactions: [newTx, ...state.transactions]
-        }));
-      },
-      clearTransactions: () => set({ transactions: [] })
-    }),
-    {
-      name: 'zefiro-transactions-storage',
+    const { data, error } = await supabase
+      .from('sales')
+      .select(`
+        id, 
+        created_at, 
+        branch_id, 
+        user_id,
+        total, 
+        status
+      `)
+      .eq('tenant_id', tenantId)
+      .order('created_at', { ascending: false })
+      .limit(100);
+
+    if (error || !data) {
+      if (error) console.error('Error fetching transactions:', error);
+      return;
     }
-  )
-);
+
+
+    const state = useBranchStore.getState();
+    
+    const mapped = data.map((sale: any) => {
+      const b = state.availableBranches.find(br => br.id === sale.branch_id);
+      const u = state.users.find(us => us.id === sale.user_id);
+      
+      return {
+        id: sale.id,
+        date: sale.created_at.replace('T', ' ').substring(0, 16),
+        branchId: sale.branch_id,
+        branchName: b ? b.name : 'Sucursal Desconocida',
+        cashier: u ? u.name : 'Cajero Desconocido',
+        total: Number(sale.total),
+        paymentMethod: 'Efectivo' as const, // Simplificación
+        category: 'General',
+        itemsCount: 1
+      };
+    });
+
+    set({ transactions: mapped });
+  },
+  addTransaction: (transaction) => {
+    const now = new Date();
+    const dateString = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+    
+    const newTx: Transaction = {
+      ...transaction,
+      id: 'TX-' + Math.floor(100000 + Math.random() * 900000),
+      date: dateString,
+    };
+    
+    set((state) => ({
+      transactions: [newTx, ...state.transactions]
+    }));
+  },
+  clearTransactions: () => set({ transactions: [] })
+}));

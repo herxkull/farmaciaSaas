@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Search, ChevronDown, ChevronUp, Calendar, AlertCircle, Layers, Download, Filter, Plus } from 'lucide-react';
+import { Search, ChevronDown, ChevronUp, Calendar, AlertCircle, Layers, Download, Filter, Plus, Edit2 } from 'lucide-react';
 import { useBranchStore } from '../../../stores/branchStore';
 import { useInventoryStore } from '../../../stores/inventoryStore';
 import { cn } from '../../../lib/utils';
@@ -12,9 +12,9 @@ export default function InventoryScreen() {
   const activeBranch = useBranchStore((state) => state.activeBranch);
   const activeBranchId = activeBranch?.id || 'b-01';
 
-  // Suscribirse de forma reactiva al store de inventario central
   const inventory = useInventoryStore((state) => state.inventory);
   const initializeBranch = useInventoryStore((state) => state.initializeBranch);
+  const addProduct = useInventoryStore((state) => state.addProduct);
   const currentInventory = inventory[activeBranchId] || [];
 
   const globalProducts = React.useMemo(() => {
@@ -59,30 +59,67 @@ export default function InventoryScreen() {
 
   const [showAddProductModal, setShowAddProductModal] = useState(false);
   const [newProduct, setNewProduct] = useState({ 
-    name: '', activeIngredient: '', sku: '', salePrice: 0, isControlled: false, category: 'General'
+    name: '', activeIngredient: '', sku: '', salePrice: 0, isControlled: false, category: 'General',
+    hasFractions: false, unitsPerBox: 0, unitPrice: 0
   });
-  const addProduct = useInventoryStore((state) => state.addProduct);
+  const [editingProductId, setEditingProductId] = useState<string | null>(null);
+  const updateProduct = useInventoryStore((state) => state.updateProduct);
+
+  const openEditModal = (product: any) => {
+    setEditingProductId(product.id);
+    setNewProduct({
+      name: product.name,
+      activeIngredient: product.activeIngredient,
+      sku: product.sku,
+      salePrice: product.salePrice,
+      isControlled: product.isControlled,
+      category: product.category,
+      hasFractions: product.hasFractions || false,
+      unitsPerBox: product.unitsPerBox || 0,
+      unitPrice: product.unitPrice || 0
+    });
+    setShowAddProductModal(true);
+  };
 
   const handleAddProduct = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newProduct.name || !newProduct.sku) return;
     
-    addProduct(activeBranchId, {
-      id: 'p-' + Date.now(),
-      name: newProduct.name,
-      activeIngredient: newProduct.activeIngredient || newProduct.name,
-      barcode: newProduct.sku,
-      sku: newProduct.sku,
-      salePrice: Number(newProduct.salePrice),
-      taxRate: 0,
-      stockTotal: 0,
-      isControlled: newProduct.isControlled,
-      category: newProduct.category,
-      batches: []
-    });
+    if (editingProductId) {
+      updateProduct(activeBranchId, editingProductId, {
+        name: newProduct.name,
+        activeIngredient: newProduct.activeIngredient || newProduct.name,
+        barcode: newProduct.sku,
+        sku: newProduct.sku,
+        salePrice: Number(newProduct.salePrice),
+        isControlled: newProduct.isControlled,
+        category: newProduct.category,
+        hasFractions: newProduct.hasFractions,
+        unitsPerBox: newProduct.hasFractions ? Number(newProduct.unitsPerBox) : undefined,
+        unitPrice: newProduct.hasFractions ? Number(newProduct.unitPrice) : undefined
+      });
+    } else {
+      addProduct(activeBranchId, {
+        id: 'p-' + Date.now(),
+        name: newProduct.name,
+        activeIngredient: newProduct.activeIngredient || newProduct.name,
+        barcode: newProduct.sku,
+        sku: newProduct.sku,
+        salePrice: Number(newProduct.salePrice),
+        taxRate: 0,
+        stockTotal: 0,
+        isControlled: newProduct.isControlled,
+        category: newProduct.category,
+        batches: [],
+        hasFractions: newProduct.hasFractions,
+        unitsPerBox: newProduct.hasFractions ? Number(newProduct.unitsPerBox) : undefined,
+        unitPrice: newProduct.hasFractions ? Number(newProduct.unitPrice) : undefined
+      });
+    }
     
     setShowAddProductModal(false);
-    setNewProduct({ name: '', activeIngredient: '', sku: '', salePrice: 0, isControlled: false, category: 'General' });
+    setEditingProductId(null);
+    setNewProduct({ name: '', activeIngredient: '', sku: '', salePrice: 0, isControlled: false, category: 'General', hasFractions: false, unitsPerBox: 0, unitPrice: 0 });
   };
 
   const toggleRow = (id: string) => {
@@ -90,9 +127,9 @@ export default function InventoryScreen() {
   };
 
   const filtered = currentInventory.filter(item => 
-    item.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-    item.activeIngredient.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    item.sku.toLowerCase().includes(searchTerm.toLowerCase())
+    (item.name || '').toLowerCase().includes(searchTerm.toLowerCase()) || 
+    (item.activeIngredient || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+    (item.sku || '').toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   const isExpiringSoon = (dateStr: string) => {
@@ -121,7 +158,11 @@ export default function InventoryScreen() {
             <Download className="w-4 h-4" /> Exportar
           </button>
           <button 
-            onClick={() => setShowAddProductModal(true)}
+            onClick={() => {
+              setEditingProductId(null);
+              setNewProduct({ name: '', activeIngredient: '', sku: '', salePrice: 0, isControlled: false, category: 'General', hasFractions: false, unitsPerBox: 0, unitPrice: 0 });
+              setShowAddProductModal(true);
+            }}
             className="px-4 py-2.5 bg-white border border-indigo-200 text-indigo-600 rounded-xl text-xs font-bold shadow-sm hover:bg-indigo-50 flex items-center gap-2 active:scale-95 transition-all"
           >
             <Plus className="w-4 h-4" /> Nuevo Producto
@@ -181,32 +222,33 @@ export default function InventoryScreen() {
                   </td>
                 </tr>
               ) : (
-                filtered.map((product) => {
-                  const isExpanded = expandedRows[product.id];
+                filtered.map((product, pIdx) => {
+                  const safeId = product.id || `p-missing-${pIdx}`;
+                  const isExpanded = expandedRows[safeId];
                   return (
-                    <React.Fragment key={product.id}>
+                    <React.Fragment key={safeId}>
                       <tr className={cn(
                         "group hover:bg-slate-50/50 transition-colors",
                         isExpanded && "bg-indigo-50/20 hover:bg-indigo-50/30"
                       )}>
                         <td className="px-6 py-4">
-                          <div className="font-bold text-slate-800 leading-tight">{product.name}</div>
-                          <div className="text-xs font-semibold text-slate-400 mt-0.5">{product.activeIngredient}</div>
+                          <div className="font-bold text-slate-800 leading-tight">{product.name || 'Sin Nombre'}</div>
+                          <div className="text-xs font-semibold text-slate-400 mt-0.5">{product.activeIngredient || 'Sin Componente'}</div>
                         </td>
                         <td className="px-6 py-4">
                           <span className="font-mono text-xs font-bold text-slate-500 bg-slate-100 px-2 py-1 rounded-md">
-                            {product.sku}
+                            {product.sku || 'N/A'}
                           </span>
                         </td>
                         <td className="px-6 py-4">
                           <div className="flex items-center gap-2">
                             <span className={cn(
                               "font-extrabold text-base tracking-tight",
-                              product.stockTotal < 15 ? "text-rose-600" : "text-slate-800"
+                              (product.stockTotal || 0) < 15 ? "text-rose-600" : "text-slate-800"
                             )}>
-                              {product.stockTotal}
+                              {product.stockTotal || 0}
                             </span>
-                            {product.stockTotal < 15 && (
+                            {(product.stockTotal || 0) < 15 && (
                               <AlertCircle className="w-4 h-4 text-rose-500 animate-pulse" />
                             )}
                           </div>
@@ -221,19 +263,28 @@ export default function InventoryScreen() {
                           )}
                         </td>
                         <td className="px-6 py-4 text-center">
-                          <button 
-                            onClick={() => toggleRow(product.id)}
-                            className={cn(
-                              "inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl border text-xs font-bold transition-all select-none hover:shadow-sm active:scale-95",
-                              isExpanded 
-                                ? "bg-indigo-600 text-white border-indigo-600 shadow-md shadow-indigo-100" 
-                                : "bg-white text-indigo-600 border-indigo-200 hover:border-indigo-300 hover:bg-indigo-50/30"
-                            )}
-                          >
-                            <Layers className="w-3.5 h-3.5" />
-                            <span>{product.batches.length}</span>
-                            {isExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-                          </button>
+                          <div className="flex items-center justify-center gap-2">
+                            <button 
+                              onClick={() => openEditModal(product)}
+                              className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+                              title="Editar Producto"
+                            >
+                              <Edit2 className="w-4 h-4" />
+                            </button>
+                            <button 
+                              onClick={() => toggleRow(safeId)}
+                              className={cn(
+                                "inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl border text-xs font-bold transition-all select-none hover:shadow-sm active:scale-95",
+                                isExpanded 
+                                  ? "bg-indigo-600 text-white border-indigo-600 shadow-md shadow-indigo-100" 
+                                  : "bg-white text-indigo-600 border-indigo-200 hover:border-indigo-300 hover:bg-indigo-50/30"
+                              )}
+                            >
+                              <Layers className="w-3.5 h-3.5" />
+                              <span>{(product.batches || []).length}</span>
+                              {isExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                            </button>
+                          </div>
                         </td>
                       </tr>
 
@@ -260,11 +311,11 @@ export default function InventoryScreen() {
                                       </tr>
                                     </thead>
                                     <tbody className="divide-y divide-slate-50 bg-white">
-                                      {product.batches.map((batch, idx) => {
+                                      {(product.batches || []).map((batch, idx) => {
                                         const expiring = isExpiringSoon(batch.expirationDate);
                                         return (
-                                          <tr key={batch.id} className="hover:bg-slate-50/50">
-                                            <td className="px-6 py-3.5 font-mono font-bold text-slate-700">{batch.batchNumber}</td>
+                                          <tr key={batch.id || `b-missing-${idx}`} className="hover:bg-slate-50/50">
+                                            <td className="px-6 py-3.5 font-mono font-bold text-slate-700">{batch.batchNumber || 'N/A'}</td>
                                             <td className="px-6 py-3.5">
                                               <div className="flex items-center gap-2">
                                                 <Calendar className={cn("w-4 h-4", expiring ? "text-rose-500" : "text-slate-400")} />
@@ -276,7 +327,7 @@ export default function InventoryScreen() {
                                                 )}
                                               </div>
                                             </td>
-                                            <td className="px-6 py-3.5 font-extrabold text-slate-700">{batch.quantity} uds</td>
+                                            <td className="px-6 py-3.5 font-extrabold text-slate-700">{batch.quantity || 0} uds</td>
                                             <td className="px-6 py-3.5">
                                               <span className={cn(
                                                 "inline-flex px-2 py-0.5 rounded font-bold text-[10px]",
@@ -388,7 +439,9 @@ export default function InventoryScreen() {
               <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
             </button>
 
-            <h3 className="text-xl font-black text-slate-800 tracking-tight mb-4">Registrar Nuevo Producto</h3>
+            <h3 className="text-xl font-black text-slate-800 tracking-tight mb-4">
+              {editingProductId ? 'Editar Producto' : 'Registrar Nuevo Producto'}
+            </h3>
             
             <form onSubmit={handleAddProduct} className="space-y-4">
               <div>
@@ -461,6 +514,43 @@ export default function InventoryScreen() {
                     <span className="text-sm font-bold text-rose-600">Es Controlado</span>
                   </label>
                 </div>
+              </div>
+
+              <div className="bg-indigo-50/50 p-4 rounded-xl border border-indigo-100/50 space-y-3">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input 
+                    type="checkbox"
+                    checked={newProduct.hasFractions}
+                    onChange={(e) => setNewProduct({...newProduct, hasFractions: e.target.checked})}
+                    className="w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500"
+                  />
+                  <span className="text-sm font-bold text-indigo-900">Habilitar Venta Fraccionada (Por Pastilla/Unidad)</span>
+                </label>
+
+                {newProduct.hasFractions && (
+                  <div className="grid grid-cols-2 gap-4 mt-2 animate-in slide-in-from-top-1 duration-200">
+                    <div>
+                      <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wide mb-1.5">Unidades por Caja</label>
+                      <input 
+                        type="number" required min="1"
+                        value={newProduct.unitsPerBox || ''}
+                        onChange={(e) => setNewProduct({...newProduct, unitsPerBox: Number(e.target.value)})}
+                        placeholder="Ej: 30"
+                        className="w-full px-3 py-2 bg-white border border-indigo-200 rounded-xl text-sm font-semibold focus:ring-2 focus:ring-indigo-500 outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wide mb-1.5">Precio Unidad (C$)</label>
+                      <input 
+                        type="number" required min="0" step="0.01"
+                        value={newProduct.unitPrice || ''}
+                        onChange={(e) => setNewProduct({...newProduct, unitPrice: Number(e.target.value)})}
+                        placeholder="Ej: 5.50"
+                        className="w-full px-3 py-2 bg-white border border-indigo-200 rounded-xl text-sm font-semibold focus:ring-2 focus:ring-indigo-500 outline-none"
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
 
               <button 

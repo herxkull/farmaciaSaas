@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   TrendingUp, 
   DollarSign, 
@@ -52,9 +52,16 @@ export default function DashboardScreen() {
 
   // Determinar si es una sucursal de prueba (las default son b-01 a b-05)
   const isDemoBranch = activeBranch?.id?.startsWith('b-0');
-
   const currentShift = useShiftStore((state) => activeBranch ? state.shifts[activeBranch.id] : null);
-  const baseAmount = currentShift ? currentShift.openingCash : (isDemoBranch ? 2500 : 0);
+  const fetchActiveShift = useShiftStore((state) => state.fetchActiveShift);
+
+  useEffect(() => {
+    if (activeBranch) {
+      fetchActiveShift(activeBranch.id);
+    }
+  }, [activeBranch, fetchActiveShift]);
+
+  const baseAmount = currentShift ? (currentShift.openingCash || 0) : (isDemoBranch ? 2500 : 0);
 
   // ==========================================
   // DATOS DINÁMICOS REALES
@@ -112,7 +119,7 @@ export default function DashboardScreen() {
       });
     }
 
-    product.batches.forEach((batch, bidx) => {
+    (product.batches || []).forEach((batch, bidx) => {
       const expDate = new Date(batch.expirationDate);
       if (expDate < limitDate) {
         expCount++;
@@ -137,6 +144,17 @@ export default function DashboardScreen() {
     const result = [];
     const daysOfWeek = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
     
+    // Calcular promedio histórico inteligente
+    const salesByDate: Record<string, number> = {};
+    branchTransactions.forEach(t => {
+      const dateKey = t.date.split(' ')[0];
+      salesByDate[dateKey] = (salesByDate[dateKey] || 0) + t.total;
+    });
+    const historicalDays = Object.values(salesByDate);
+    const avgHistoricalSales = historicalDays.length > 0 
+      ? historicalDays.reduce((a, b) => a + b, 0) / historicalDays.length 
+      : 1000;
+    
     for (let i = 6; i >= 0; i--) {
       const d = new Date(today);
       d.setDate(d.getDate() - i);
@@ -149,7 +167,7 @@ export default function DashboardScreen() {
       result.push({
         day: daysOfWeek[d.getDay()],
         actual: daySales,
-        projected: 1000, // Projection could be dynamic later
+        projected: avgHistoricalSales,
         date: i === 0 ? 'Hoy' : `Hace ${i} días`
       });
     }
@@ -159,14 +177,11 @@ export default function DashboardScreen() {
   const weeklySales = calculateRealWeeklySales();
 
   const bestSellers: BestSeller[] = [...branchInventory]
-    .map(p => {
-      const assumedInitialStock = p.category === 'Analgésicos' ? 150 : p.category === 'Antibióticos' ? 40 : 50;
-      const retroSold = Math.max(0, assumedInitialStock - p.stockTotal);
-      return {
-        ...p,
-        calculatedSales: (p as any).soldTotal !== undefined ? (p as any).soldTotal : retroSold
-      };
-    })
+    .filter(p => (p.soldTotal || 0) > 0)
+    .map(p => ({
+      ...p,
+      calculatedSales: p.soldTotal || 0
+    }))
     .sort((a, b) => b.calculatedSales - a.calculatedSales)
     .slice(0, 5)
     .map((p, i) => ({
@@ -605,21 +620,27 @@ export default function DashboardScreen() {
                   </th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
-                {sortedBestSellers.length > 0 ? sortedBestSellers.map((prod) => (
-                  <tr key={prod.id} className="hover:bg-white transition-colors">
-                    <td className="p-2.5 pl-3 flex items-center gap-2 min-w-0">
-                      <span className="bg-white border border-slate-100 rounded shadow-sm p-0.5 text-xs shrink-0">{prod.img}</span>
-                      <div className="min-w-0">
-                        <div className="font-bold text-slate-800 truncate leading-tight">{prod.name}</div>
-                        <div className="text-[9px] text-slate-400 leading-none mt-0.5 truncate">{prod.activeIng}</div>
-                      </div>
+              <tbody className="divide-y divide-slate-100">
+                {sortedBestSellers.length === 0 ? (
+                  <tr>
+                    <td colSpan={3} className="p-8 text-center text-slate-400 font-bold">
+                      No hay ventas registradas en esta sucursal.
                     </td>
-                    <td className="p-2.5 text-right font-extrabold text-slate-900">{prod.sales}</td>
-                    <td className="p-2.5 pr-3 text-right font-bold text-emerald-600">{prod.margin}%</td>
                   </tr>
-                )) : (
-                  <tr><td colSpan={3} className="text-center py-6 text-slate-400 font-medium">Sin ventas registradas</td></tr>
+                ) : (
+                  sortedBestSellers.map((prod) => (
+                    <tr key={prod.id} className="hover:bg-white transition-colors">
+                      <td className="p-2.5 pl-3 flex items-center gap-2 min-w-0">
+                        <span className="bg-white border border-slate-100 rounded shadow-sm p-0.5 text-xs shrink-0">{prod.img}</span>
+                        <div className="min-w-0">
+                          <div className="font-bold text-slate-800 truncate leading-tight">{prod.name}</div>
+                          <div className="text-[9px] text-slate-400 leading-none mt-0.5 truncate">{prod.activeIng}</div>
+                        </div>
+                      </td>
+                      <td className="p-2.5 text-right font-extrabold text-slate-900">{prod.sales}</td>
+                      <td className="p-2.5 pr-3 text-right font-bold text-emerald-600">{prod.margin}%</td>
+                    </tr>
+                  ))
                 )}
               </tbody>
             </table>

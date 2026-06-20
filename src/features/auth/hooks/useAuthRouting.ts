@@ -15,7 +15,7 @@ export function useAuthRouting() {
     login(user);
 
     // 2. Ejecutar bifurcación de roles (RBAC Flow)
-    const isAdministrative = user.role === 'OWNER' || user.role === 'SUPER_ADMIN';
+    const isAdministrative = user.role === 'TENANT_OWNER' || user.role === 'OWNER' || user.role === 'SUPER_ADMIN';
 
     if (isAdministrative) {
       // CASO A: Administrador -> Redirigir al selector de sucursales para auditoría
